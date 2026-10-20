@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Brightness
+Comment=Monitor brightness sliders (DDC/CI)
+Exec=sh -c "$HOME/.local/bin/brightness"
+Icon=display-brightness-symbolic
+Type=Application
+Categories=Settings;
+StartupWMClass=brightness

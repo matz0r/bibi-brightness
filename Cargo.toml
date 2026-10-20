@@ -1,0 +1,24 @@
+[package]
+name = "brightness"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/matz0r/bibi-brightness"
+
+[dependencies]
+ddc-hi = "0.4.1"
+# glow (OpenGL) renderer instead of the default wgpu: smaller binary, works on older GPUs/VMs
+eframe = { version = "0.37.0", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "persistence",
+    "wayland",
+    "x11",
+] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
