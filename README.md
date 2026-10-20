@@ -2,7 +2,7 @@
 
 **Change brightness of your displays with a simple UI using a single binary.**
 
-Sliders for monitor brightness over DDC/CI. Talks to the monitors directly
+Cross-Platform tool to change monitor brightness over DDC/CI. Talks to the monitors directly
 (no ddcutil needed).
 
 ## Download
