@@ -6,7 +6,9 @@ license = "MIT"
 repository = "https://github.com/matz0r/bibi-brightness"
 
 [dependencies]
-ddc-hi = "0.4.1"
+# Linux: /dev/i2c-*, Windows: dxva2. No NVAPI backend: on NVIDIA cards it would
+# list every monitor a second time next to dxva2.
+ddc-hi = { version = "0.4.1", default-features = false, features = ["ddc-i2c", "ddc-winapi"] }
 # glow (OpenGL) renderer instead of the default wgpu: smaller binary, works on older GPUs/VMs
 eframe = { version = "0.37.0", default-features = false, features = [
     "default_fonts",

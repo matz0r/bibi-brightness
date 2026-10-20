@@ -29,7 +29,7 @@ enum Cmd {
 enum Event {
     Scanning,
     Found(Vec<Monitor>),
-    Error(String),
+    SetFailed(usize, String),
 }
 
 fn main() -> eframe::Result {
@@ -84,20 +84,30 @@ fn worker(rx: Receiver<Cmd>, tx: Sender<Event>, ctx: egui::Context) {
                 continue;
             };
             let raw = (percent / 100.0 * *max as f32).round() as u16;
-            if let Err(e) = display.handle.set_vcp_feature(BRIGHTNESS, raw) {
-                let _ = tx.send(Event::Error(format!(
-                    "{}: {e}",
-                    display_name(&display.info)
-                )));
+            if let Err(e) = retry(2, || display.handle.set_vcp_feature(BRIGHTNESS, raw)) {
+                let _ = tx.send(Event::SetFailed(i, e.to_string()));
                 ctx.request_repaint();
             }
         }
     }
 }
 
+/// Some monitors answer DDC/CI with garbage now and then; try a few times.
+fn retry<T, E>(attempts: u32, mut f: impl FnMut() -> Result<T, E>) -> Result<T, E> {
+    let mut result = f();
+    for _ in 1..attempts {
+        if result.is_ok() {
+            break;
+        }
+        result = f();
+    }
+    result
+}
+
 fn scan_displays() -> (Vec<(Display, u16)>, Vec<Monitor>) {
     let mut found = Display::enumerate();
-    // Sort by bus number on Linux (matches ddcutil's order), by name elsewhere.
+    // On Linux the id is the /dev/i2c-N device number, so this sorts by bus
+    // number (matches ddcutil's order); elsewhere it sorts by name.
     found.sort_by_key(|d| {
         (
             d.info.id.parse::<u64>().unwrap_or(u64::MAX),
@@ -109,10 +119,15 @@ fn scan_displays() -> (Vec<(Display, u16)>, Vec<Monitor>) {
     let mut monitors: Vec<Monitor> = Vec::new();
     for mut d in found {
         // Skip outputs that don't answer DDC/CI brightness (laptop panels, some TVs, …)
-        let Ok(value) = d.handle.get_vcp_feature(BRIGHTNESS) else {
+        let Ok(value) = retry(3, || d.handle.get_vcp_feature(BRIGHTNESS)) else {
             continue;
         };
         let max = value.maximum().max(1);
+        // Windows (dxva2) gives no EDID, only "Generic PnP Monitor"; ask the
+        // monitor for its model name instead.
+        if d.info.model_name.is_none() {
+            let _ = d.update_capabilities();
+        }
 
         let mut key = display_key(&d.info);
         if monitors.iter().any(|m| m.key == key) {
@@ -125,29 +140,49 @@ fn scan_displays() -> (Vec<(Display, u16)>, Vec<Monitor>) {
         });
         displays.push((d, max));
     }
+
+    // Identical models: add the end of the serial so the sliders can be told apart
+    let names: Vec<String> = monitors.iter().map(|m| m.name.clone()).collect();
+    for (n, (m, (d, _))) in monitors.iter_mut().zip(&displays).enumerate() {
+        if names.iter().filter(|&name| *name == m.name).count() > 1 {
+            let serial: Vec<char> = display_serial(&d.info).chars().collect();
+            let tail: String = serial[serial.len().saturating_sub(4)..].iter().collect();
+            let tail = if tail.is_empty() {
+                (n + 1).to_string()
+            } else {
+                tail
+            };
+            m.name = format!("{} ({tail})", m.name);
+        }
+    }
     (displays, monitors)
 }
 
 fn display_name(info: &DisplayInfo) -> String {
     match (&info.manufacturer_id, &info.model_name) {
-        (Some(mfr), Some(model)) => format!("{mfr} {model}"),
-        (None, Some(model)) => model.clone(),
+        // "DEL" + "DELL U2518D" would repeat the brand
+        (Some(mfr), Some(model)) if !model.to_uppercase().starts_with(&mfr.to_uppercase()) => {
+            format!("{mfr} {model}")
+        }
+        (_, Some(model)) => model.clone(),
         _ => info.id.clone(),
     }
 }
 
-fn display_key(info: &DisplayInfo) -> String {
-    let serial = info
-        .serial_number
+fn display_serial(info: &DisplayInfo) -> String {
+    info.serial_number
         .clone()
         .or(info.serial.map(|s| s.to_string()))
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn display_key(info: &DisplayInfo) -> String {
     format!(
         "{}|{}|{}|{}",
         info.manufacturer_id.as_deref().unwrap_or(""),
         info.model_name.as_deref().unwrap_or(""),
         info.model_id.unwrap_or(0),
-        serial
+        display_serial(info)
     )
 }
 
@@ -263,7 +298,10 @@ impl App {
                         m.percent = m.percent.round();
                     }
                 }
-                Event::Error(e) => self.status = Some(e),
+                Event::SetFailed(i, e) => {
+                    let name = self.monitors.get(i).map_or("Monitor", |m| m.name.as_str());
+                    self.status = Some(format!("{name}: {e}"));
+                }
             }
         }
     }
