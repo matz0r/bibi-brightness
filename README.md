@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/banner.svg" alt="BIBI Brightness" width="100%"></p>
+
 # BIBI Brightness
 
 **Change brightness of your displays with a simple UI using a single binary.**
@@ -46,6 +48,8 @@ Needs glibc of the build machine or newer.
 ```bash
 mkdir -p ~/.local/bin && cp target/release/brightness ~/.local/bin/
 cp brightness.desktop ~/.local/share/applications/
+mkdir -p ~/.local/share/icons/hicolor/256x256/apps
+cp assets/icon.png ~/.local/share/icons/hicolor/256x256/apps/bibi-brightness.png
 ```
 
 ## Usage

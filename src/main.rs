@@ -35,9 +35,13 @@ enum Event {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Brightness")
+            .with_title("BIBI Brightness")
             .with_app_id("brightness")
-            .with_inner_size([520.0, 250.0]),
+            .with_inner_size([520.0, 330.0])
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
+                    .expect("bundled icon is a valid PNG"),
+            ),
         ..Default::default()
     };
     eframe::run_native(
@@ -220,6 +224,62 @@ fn no_monitor_hint() -> String {
 // UI
 // ---------------------------------------------------------------------------
 
+// Colors from assets/logo.svg
+const NIGHT: egui::Color32 = egui::Color32::from_rgb(0x1e, 0x14, 0x50);
+const CARD: egui::Color32 = egui::Color32::from_rgb(0x2b, 0x20, 0x62);
+const WIDGET: egui::Color32 = egui::Color32::from_rgb(0x3a, 0x2f, 0x66);
+const WIDGET_HOVER: egui::Color32 = egui::Color32::from_rgb(0x4d, 0x3f, 0x88);
+const VIOLET: egui::Color32 = egui::Color32::from_rgb(0x9b, 0x5c, 0xf6);
+const SUN: egui::Color32 = egui::Color32::from_rgb(0xff, 0xd2, 0x3f);
+const INK: egui::Color32 = egui::Color32::from_rgb(0x14, 0x0c, 0x2a);
+const TEXT: egui::Color32 = egui::Color32::from_rgb(0xec, 0xe8, 0xff);
+const MUTED: egui::Color32 = egui::Color32::from_rgb(0xa9, 0x9f, 0xd6);
+
+/// Small sun like the one in the logo. Drawn instead of "☀", which the
+/// built-in fonts don't have.
+fn sun_icon(ui: &mut egui::Ui, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    let c = rect.center();
+    let painter = ui.painter();
+    painter.circle_filled(c, size * 0.22, SUN);
+    let stroke = egui::Stroke::new(size * 0.09, SUN);
+    for k in 0..8 {
+        let dir = egui::Vec2::angled(k as f32 * std::f32::consts::FRAC_PI_4);
+        painter.line_segment([c + dir * size * 0.34, c + dir * size * 0.48], stroke);
+    }
+}
+
+fn set_style(ctx: &egui::Context) {
+    ctx.set_theme(egui::Theme::Dark);
+    ctx.style_mut_of(egui::Theme::Dark, |style| {
+        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        style.spacing.button_padding = egui::vec2(10.0, 4.0);
+        style.spacing.slider_rail_height = 6.0;
+
+        let v = &mut style.visuals;
+        v.panel_fill = NIGHT;
+        v.window_fill = NIGHT;
+        v.extreme_bg_color = INK; // background of the value box next to a slider
+        v.selection.bg_fill = SUN; // filled part of a slider, active preset, "Linked"
+        v.selection.stroke = egui::Stroke::new(1.0, INK);
+        v.slider_trailing_fill = true;
+        v.warn_fg_color = egui::Color32::from_rgb(0xff, 0xb8, 0x00);
+        v.widgets.noninteractive.fg_stroke.color = TEXT;
+        v.widgets.noninteractive.bg_stroke.color = WIDGET;
+        for (w, fill) in [
+            (&mut v.widgets.inactive, WIDGET),
+            (&mut v.widgets.hovered, WIDGET_HOVER),
+            (&mut v.widgets.active, VIOLET),
+        ] {
+            w.bg_fill = fill;
+            w.weak_bg_fill = fill;
+            w.bg_stroke = egui::Stroke::NONE;
+            w.fg_stroke.color = TEXT;
+            w.corner_radius = egui::CornerRadius::same(8);
+        }
+    });
+}
+
 struct App {
     tx: Sender<Cmd>,
     rx: Receiver<Event>,
@@ -233,6 +293,7 @@ impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (ev_tx, ev_rx) = mpsc::channel();
+        set_style(&cc.egui_ctx);
         let ctx = cc.egui_ctx.clone();
         thread::spawn(move || worker(cmd_rx, ev_tx, ctx));
         let _ = cmd_tx.send(Cmd::Scan);
@@ -283,6 +344,73 @@ impl App {
         }
     }
 
+    /// Whether all monitors are at the values of this preset.
+    fn preset_active(&self, linked: f32, other: f32) -> bool {
+        !self.monitors.is_empty()
+            && (0..self.monitors.len()).all(|j| {
+                self.monitors[j].percent == if self.is_linked(j) { linked } else { other }
+            })
+    }
+
+    /// One monitor: name, link toggle and slider. Returns true if the link changed.
+    fn monitor_card(&mut self, ui: &mut egui::Ui, i: usize) -> bool {
+        let linked = self.is_linked(i);
+        let mut link_changed = false;
+        egui::Frame::new()
+            .fill(CARD)
+            .stroke(egui::Stroke::new(1.5, if linked { SUN } else { WIDGET }))
+            .corner_radius(10)
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&self.monitors[i].name).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(if linked { "Linked" } else { "Link" })
+                                    .selected(linked),
+                            )
+                            .on_hover_text("Linked monitors share one brightness value")
+                            .clicked()
+                        {
+                            link_changed = true;
+                            self.toggle_link(i);
+                        }
+                    });
+                });
+
+                ui.spacing_mut().slider_width = ui.available_width() - 64.0;
+                let mut value = self.monitors[i].percent;
+                if ui
+                    .add(
+                        egui::Slider::new(&mut value, 0.0..=100.0)
+                            .step_by(1.0)
+                            .suffix(" %")
+                            .fixed_decimals(0),
+                    )
+                    .changed()
+                {
+                    self.set(i, value);
+                }
+            });
+        link_changed
+    }
+
+    fn toggle_link(&mut self, i: usize) {
+        let key = self.monitors[i].key.clone();
+        if self.linked.remove(&key) {
+            return;
+        }
+        // Join the group at the group's current value
+        let group_value = (0..self.monitors.len())
+            .find(|&j| self.is_linked(j))
+            .map(|j| self.monitors[j].percent);
+        self.linked.insert(key);
+        if let Some(v) = group_value {
+            self.set(i, v);
+        }
+    }
+
     fn handle_events(&mut self) {
         while let Ok(ev) = self.rx.try_recv() {
             match ev {
@@ -312,96 +440,66 @@ impl eframe::App for App {
         self.handle_events();
         let mut links_changed = false;
 
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.spacing_mut().slider_width = 260.0;
-
-            if self.scanning {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(NIGHT).inner_margin(16))
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label("Searching for monitors…");
-                });
-            } else {
-                if !self.monitors.is_empty() {
-                    ui.horizontal(|ui| {
-                        ui.label("Presets");
-                        for &(linked, other) in PRESETS {
-                            if ui
-                                .button(format!("{linked} / {other}"))
-                                .on_hover_text(format!(
-                                    "Linked monitors: {linked} %, other monitors: {other} %"
-                                ))
-                                .clicked()
-                            {
-                                self.apply_preset(linked as f32, other as f32);
-                            }
+                    sun_icon(ui, 22.0);
+                    ui.label(egui::RichText::new("Brightness").size(20.0).strong().color(SUN));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add_enabled(!self.scanning, egui::Button::new("Rescan"))
+                            .on_hover_text("Search for monitors again")
+                            .clicked()
+                        {
+                            self.scanning = true;
+                            let _ = self.tx.send(Cmd::Scan);
                         }
                     });
-                    ui.add_space(6.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                }
+                });
+                ui.add_space(6.0);
 
-                egui::Grid::new("monitors")
-                    .num_columns(3)
-                    .spacing([14.0, 10.0])
-                    .show(ui, |ui| {
-                        for i in 0..self.monitors.len() {
-                            let linked = self.is_linked(i);
-                            let name = egui::RichText::new(&self.monitors[i].name);
-                            ui.label(if linked { name.strong() } else { name });
-
-                            let mut value = self.monitors[i].percent;
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut value, 0.0..=100.0)
-                                        .step_by(1.0)
-                                        .suffix(" %")
-                                        .fixed_decimals(0),
-                                )
-                                .changed()
-                            {
-                                self.set(i, value);
-                            }
-
-                            let mut link = linked;
-                            if ui
-                                .checkbox(&mut link, "Link")
-                                .on_hover_text("Linked monitors share one brightness value")
-                                .changed()
-                            {
-                                links_changed = true;
-                                let key = self.monitors[i].key.clone();
-                                if link {
-                                    // Join the group at the group's current value
-                                    let group_value = (0..self.monitors.len())
-                                        .find(|&j| self.is_linked(j))
-                                        .map(|j| self.monitors[j].percent);
-                                    self.linked.insert(key);
-                                    if let Some(v) = group_value {
-                                        self.set(i, v);
-                                    }
-                                } else {
-                                    self.linked.remove(&key);
+                if self.scanning {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Searching for monitors…");
+                    });
+                } else {
+                    if !self.monitors.is_empty() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(egui::RichText::new("Presets").color(MUTED));
+                            for &(linked, other) in PRESETS {
+                                let active = self.preset_active(linked as f32, other as f32);
+                                if ui
+                                    .add(
+                                        egui::Button::new(format!("{linked} / {other}"))
+                                            .selected(active),
+                                    )
+                                    .on_hover_text(format!(
+                                        "Linked monitors: {linked} %, other monitors: {other} %"
+                                    ))
+                                    .clicked()
+                                {
+                                    self.apply_preset(linked as f32, other as f32);
                                 }
                             }
-                            ui.end_row();
-                        }
-                    });
-            }
+                        });
+                        ui.add_space(6.0);
+                    }
 
-            ui.add_space(8.0);
-            if ui
-                .add_enabled(!self.scanning, egui::Button::new("Rescan"))
-                .clicked()
-            {
-                self.scanning = true;
-                let _ = self.tx.send(Cmd::Scan);
-            }
-            if let Some(status) = &self.status {
-                ui.add_space(4.0);
-                ui.colored_label(ui.visuals().warn_fg_color, status);
-            }
-        });
+                    for i in 0..self.monitors.len() {
+                        if self.monitor_card(ui, i) {
+                            links_changed = true;
+                        }
+                        ui.add_space(4.0);
+                    }
+                }
+
+                if let Some(status) = &self.status {
+                    ui.add_space(4.0);
+                    ui.colored_label(ui.visuals().warn_fg_color, status);
+                }
+            });
 
         // Save links right away instead of only on a clean exit
         if links_changed && let Some(storage) = frame.storage_mut() {

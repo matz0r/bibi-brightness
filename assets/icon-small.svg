@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>BIBI Brightness</title>
+  <!-- Simplified logo.svg for icon sizes up to 32 px: the monitor wears the hat -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a2a8c"/>
+      <stop offset="1" stop-color="#1e1450"/>
+    </linearGradient>
+    <radialGradient id="screen" cx="0.5" cy="0.5" r="0.65">
+      <stop offset="0" stop-color="#fffef0"/>
+      <stop offset="1" stop-color="#ffd84a"/>
+    </radialGradient>
+  </defs>
+
+  <g stroke-linejoin="round" stroke-linecap="round">
+    <rect width="512" height="512" rx="110" fill="url(#sky)"/>
+
+    <!-- monitor -->
+    <g stroke="#140c2a" stroke-width="22" fill="#3a2f66">
+      <rect x="226" y="400" width="60" height="44"/>
+      <rect x="156" y="436" width="200" height="34" rx="17"/>
+      <rect x="40" y="196" width="432" height="222" rx="36"/>
+    </g>
+    <rect x="76" y="232" width="360" height="150" rx="14" fill="url(#screen)" stroke="#140c2a" stroke-width="12"/>
+    <circle cx="256" cy="307" r="44" fill="#ffb800"/>
+
+    <!-- witch hat on the monitor -->
+    <g stroke="#140c2a" stroke-width="20">
+      <path d="M86 196 C100 136 96 96 58 62 C140 64 210 100 246 196 Z" fill="#9b5cf6"/>
+      <ellipse cx="166" cy="198" rx="140" ry="30" fill="#9b5cf6"/>
+    </g>
+
+    <!-- wand star -->
+    <polygon points="400,34 421,87 478,90 434,127 448,183 400,152 352,183 366,127 322,90 379,87"
+             fill="#ffd23f" stroke="#140c2a" stroke-width="16"/>
+  </g>
+</svg>

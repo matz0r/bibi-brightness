@@ -59,6 +59,7 @@ jobs:
             7z a -tzip "dist/$name.zip" "$name"
           else
             cp target/${{ matrix.target }}/release/brightness brightness.desktop "$name"/
+            mkdir -p "$name"/assets && cp assets/icon.png "$name"/assets/
             tar czf "dist/$name.tar.gz" "$name"
           fi
 

@@ -2,7 +2,7 @@
 Name=Brightness
 Comment=Monitor brightness sliders (DDC/CI)
 Exec=sh -c "$HOME/.local/bin/brightness"
-Icon=display-brightness-symbolic
+Icon=bibi-brightness
 Type=Application
 Categories=Settings;
 StartupWMClass=brightness

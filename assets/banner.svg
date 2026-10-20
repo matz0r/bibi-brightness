@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 256" width="1024" height="256">
+  <title>BIBI Brightness</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a2a8c"/>
+      <stop offset="1" stop-color="#1e1450"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff3a0" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#fff3a0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="screen" cx="0.5" cy="0.5" r="0.65">
+      <stop offset="0" stop-color="#fffef0"/>
+      <stop offset="1" stop-color="#ffd84a"/>
+    </radialGradient>
+    <clipPath id="tile">
+      <rect width="1024" height="256" rx="48"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)" stroke-linejoin="round" stroke-linecap="round">
+    <!-- night sky -->
+    <rect width="1024" height="256" fill="url(#sky)"/>
+    <g fill="#fff" opacity="0.7">
+      <circle cx="30" cy="40" r="3"/>
+      <circle cx="300" cy="28" r="3"/>
+      <circle cx="420" cy="230" r="3"/>
+      <circle cx="610" cy="24" r="2.5"/>
+      <circle cx="1000" cy="200" r="3"/>
+      <circle cx="560" cy="236" r="2.5"/>
+    </g>
+
+    <!-- glow behind the monitors, strongest at the brightest one -->
+    <ellipse cx="660" cy="118" rx="200" ry="110" fill="url(#glow)" opacity="0.35"/>
+    <ellipse cx="855" cy="112" rx="150" ry="125" fill="url(#glow)"/>
+    <g stroke="#ffe066" stroke-width="8">
+      <line x1="855" y1="22" x2="855" y2="6"/>
+      <line x1="805" y1="32" x2="796" y2="18"/>
+      <line x1="905" y1="32" x2="914" y2="18"/>
+      <line x1="950" y1="70" x2="966" y2="62"/>
+      <line x1="960" y1="112" x2="978" y2="112"/>
+      <line x1="950" y1="154" x2="966" y2="162"/>
+    </g>
+
+    <!-- three linked monitors: dim, medium, bright -->
+    <g stroke="#140c2a" stroke-width="7">
+      <g fill="#3a2f66">
+        <rect x="455" y="155" width="20" height="20"/>
+        <rect x="427" y="172" width="76" height="13" rx="6.5"/>
+        <rect x="390" y="62" width="150" height="96" rx="15"/>
+        <rect x="650" y="155" width="20" height="20"/>
+        <rect x="622" y="172" width="76" height="13" rx="6.5"/>
+        <rect x="585" y="62" width="150" height="96" rx="15"/>
+        <rect x="845" y="155" width="20" height="20"/>
+        <rect x="817" y="172" width="76" height="13" rx="6.5"/>
+        <rect x="780" y="62" width="150" height="96" rx="15"/>
+      </g>
+      <rect x="403" y="75" width="124" height="70" rx="7" fill="#5a5288" stroke-width="4.5"/>
+      <rect x="598" y="75" width="124" height="70" rx="7" fill="#f2cf63" stroke-width="4.5"/>
+      <rect x="793" y="75" width="124" height="70" rx="7" fill="url(#screen)" stroke-width="4.5"/>
+    </g>
+    <!-- moon, small sun, big sun -->
+    <path d="M472 96 A16 16 0 1 0 472 124 A12 12 0 1 1 472 96 Z" fill="#cfc6f0"/>
+    <circle cx="660" cy="110" r="13" fill="#ffb800"/>
+    <g stroke="#ffaa00" stroke-width="5">
+      <line x1="875" y1="110" x2="883" y2="110"/>
+      <line x1="869.1" y1="124.1" x2="874.8" y2="129.8"/>
+      <line x1="855" y1="130" x2="855" y2="138"/>
+      <line x1="840.9" y1="124.1" x2="835.2" y2="129.8"/>
+      <line x1="835" y1="110" x2="827" y2="110"/>
+      <line x1="840.9" y1="95.9" x2="835.2" y2="90.2"/>
+      <line x1="855" y1="90" x2="855" y2="82"/>
+      <line x1="869.1" y1="95.9" x2="874.8" y2="90.2"/>
+    </g>
+    <circle cx="855" cy="110" r="15" fill="#ffb800"/>
+    <!-- link chain between the monitors -->
+    <g fill="none" stroke="#cfc6f0" stroke-width="5">
+      <rect x="539" y="102" width="26" height="14" rx="7"/>
+      <rect x="555" y="102" width="26" height="14" rx="7"/>
+      <rect x="734" y="102" width="26" height="14" rx="7"/>
+      <rect x="750" y="102" width="26" height="14" rx="7"/>
+    </g>
+
+    <!-- sparkle trail from the wand -->
+    <path d="M250 126 Q300 60 352 92 Q380 110 392 70" fill="none" stroke="#fff6c2" stroke-width="5" stroke-dasharray="1 13"/>
+    <g fill="#fff6c2">
+      <path d="M330 38 Q332 52 344 54 Q332 56 330 70 Q328 56 316 54 Q328 52 330 38 Z"/>
+      <path d="M300 150 Q302 162 312 164 Q302 166 300 178 Q298 166 288 164 Q298 162 300 150 Z"/>
+      <path d="M370 192 Q372 206 384 208 Q372 210 370 224 Q368 210 356 208 Q368 206 370 192 Z"/>
+      <path d="M990 20 Q992 32 1002 34 Q992 36 990 48 Q988 36 978 34 Q988 32 990 20 Z"/>
+    </g>
+
+    <!-- little witch (same drawing as logo.svg, scaled down) -->
+    <g transform="translate(40 -38) scale(0.6)">
+      <g stroke="#140c2a" stroke-width="8">
+        <path d="M70 530 Q80 432 180 418 Q280 432 290 530 Z" fill="#7b3fe4"/>
+        <path d="M150 422 L180 450 L210 422" fill="none" stroke-width="6"/>
+        <path d="M92 300 Q40 330 30 400 Q62 380 88 392 Q70 360 104 340 Z" fill="#f5c542"/>
+        <circle cx="180" cy="318" r="98" fill="#f5c542"/>
+        <circle cx="180" cy="332" r="84" fill="#ffd9b8"/>
+        <path d="M96 268 Q112 312 140 290 Q160 316 186 292 Q212 316 236 290 Q256 310 266 268 Z" fill="#f5c542"/>
+        <path d="M112 254 C128 186 116 132 64 96 C140 104 214 150 250 254 Z" fill="#9b5cf6"/>
+        <path d="M118 236 Q182 222 246 236 L251 256 Q182 242 113 256 Z" fill="#ffd23f" stroke-width="6"/>
+        <ellipse cx="182" cy="258" rx="128" ry="24" fill="#9b5cf6"/>
+      </g>
+      <g fill="#140c2a">
+        <ellipse cx="152" cy="338" rx="12" ry="17"/>
+        <ellipse cx="214" cy="338" rx="12" ry="17"/>
+      </g>
+      <g fill="#fff">
+        <circle cx="156" cy="331" r="5"/>
+        <circle cx="218" cy="331" r="5"/>
+      </g>
+      <g fill="#ff8fa3" opacity="0.8">
+        <ellipse cx="126" cy="370" rx="15" ry="9"/>
+        <ellipse cx="240" cy="370" rx="15" ry="9"/>
+      </g>
+      <path d="M160 376 Q184 404 208 376 Z" fill="#a3203f" stroke="#140c2a" stroke-width="6"/>
+      <path d="M236 448 Q262 432 284 404" fill="none" stroke="#140c2a" stroke-width="34"/>
+      <path d="M236 448 Q262 432 284 404" fill="none" stroke="#7b3fe4" stroke-width="20"/>
+      <line x1="290" y1="404" x2="316" y2="300" stroke="#140c2a" stroke-width="16"/>
+      <line x1="290" y1="404" x2="316" y2="300" stroke="#6b4423" stroke-width="7"/>
+      <circle cx="288" cy="402" r="17" fill="#ffd9b8" stroke="#140c2a" stroke-width="7"/>
+      <polygon points="318.0,260.0 325.6,279.5 346.5,280.7 330.4,294.0 335.6,314.3 318.0,303.0 300.4,314.3 305.6,294.0 289.5,280.7 310.4,279.5"
+               fill="#ffd23f" stroke="#140c2a" stroke-width="6"/>
+    </g>
+  </g>
+</svg>
