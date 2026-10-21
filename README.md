@@ -62,6 +62,21 @@ cp assets/icon.png ~/.local/share/icons/hicolor/256x256/apps/bibi-brightness.png
   other monitors to the second. Edit `PRESETS` at the top of `src/main.rs`
   to change them.
 
+## Tray icon (Linux)
+
+`brightness --tray` puts an icon in the panel instead of opening the window.
+Click it to show or hide the sliders; right-click for Open / Quit. Works on
+desktops with StatusNotifierItem support (KDE, Cinnamon, XFCE, MATE, LXQt,
+Budgie, Waybar; GNOME only with the AppIndicator extension). Without one,
+`--tray` just opens the window.
+
+Start it on login:
+
+```bash
+mkdir -p ~/.config/autostart
+sed 's|brightness"|brightness --tray"|' brightness.desktop > ~/.config/autostart/brightness-tray.desktop
+```
+
 ## Releasing
 
 Push a version tag, e.g. `git tag v0.1.0 && git push origin v0.1.0`. GitHub

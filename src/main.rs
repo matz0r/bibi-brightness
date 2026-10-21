@@ -7,6 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
+#[cfg(target_os = "linux")]
+mod tray;
+
 const BRIGHTNESS: u8 = 0x10; // VCP feature code for brightness
 
 /// Brightness presets: (linked monitors, other monitors) in percent.
@@ -33,6 +36,15 @@ enum Event {
 }
 
 fn main() -> eframe::Result {
+    // --tray: icon in the panel, the window opens on click
+    #[cfg(target_os = "linux")]
+    if std::env::args().skip(1).any(|a| a == "--tray") {
+        match tray::run() {
+            Ok(()) => return Ok(()),
+            Err(e) => eprintln!("brightness: no tray available ({e}), opening the window"),
+        }
+    }
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("BIBI Brightness")
