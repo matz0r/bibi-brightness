@@ -36,10 +36,13 @@ enum Event {
 }
 
 fn main() -> eframe::Result {
-    // --tray: icon in the panel, the window opens on click
+    // Linux: icon in the panel; closing the window keeps it running there.
+    // --tray starts hidden (autostart), --window is the window process the
+    // tray starts.
     #[cfg(target_os = "linux")]
-    if std::env::args().skip(1).any(|a| a == "--tray") {
-        match tray::run() {
+    if !std::env::args().skip(1).any(|a| a == "--window") {
+        let hidden = std::env::args().skip(1).any(|a| a == "--tray");
+        match tray::run(!hidden) {
             Ok(()) => return Ok(()),
             Err(e) => eprintln!("brightness: no tray available ({e}), opening the window"),
         }

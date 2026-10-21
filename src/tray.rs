@@ -2,14 +2,21 @@
 // Tray icon (Linux, StatusNotifierItem over D-Bus): KDE, Cinnamon, XFCE,
 // MATE, LXQt, Budgie, Waybar, GNOME with the AppIndicator extension.
 //
-// The window runs as a child process (the same binary without --tray):
+// The window runs as a child process (the same binary with --window):
 // winit allows only one event loop per process and can't hide a window on
 // Wayland, so "closing to the tray" means ending that process.
+//
+// Only one tray runs per user. A second start finds it through a socket in
+// $XDG_RUNTIME_DIR and asks it to open the window instead.
 // ---------------------------------------------------------------------------
 
 use ksni::blocking::TrayMethods;
+use std::io::{Read, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::mpsc::{self, Sender};
+use std::thread;
 
 struct Tray {
     window: Option<Child>,
@@ -26,7 +33,7 @@ impl Tray {
         if self.window_open() {
             return;
         }
-        match std::env::current_exe().and_then(|exe| Command::new(exe).spawn()) {
+        match std::env::current_exe().and_then(|exe| Command::new(exe).arg("--window").spawn()) {
             Ok(child) => self.window = Some(child),
             Err(e) => eprintln!("brightness: can't start the window: {e}"),
         }
@@ -122,16 +129,63 @@ fn icon_pixmaps() -> Vec<ksni::Icon> {
         .collect()
 }
 
+fn socket_path() -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR").map(|dir| PathBuf::from(dir).join("bibi-brightness.sock"))
+}
+
+/// Tells a tray that is already running to open the window (or nothing, for
+/// --tray). Returns false if there is none.
+fn notify_running(show_window: bool) -> bool {
+    let Some(path) = socket_path() else {
+        return false;
+    };
+    let Ok(mut stream) = UnixStream::connect(path) else {
+        return false;
+    };
+    let _ = stream.write_all(if show_window { b"open" } else { b"" });
+    true
+}
+
 /// Runs until "Quit" is chosen. Err if the desktop has no SNI tray.
-pub fn run() -> Result<(), ksni::Error> {
+pub fn run(show_window: bool) -> Result<(), ksni::Error> {
+    if notify_running(show_window) {
+        return Ok(());
+    }
+
     let (quit_tx, quit_rx) = mpsc::channel();
     let handle = Tray {
         window: None,
         quit: quit_tx,
     }
     .spawn()?;
+    if show_window {
+        handle.update(Tray::open_window);
+    }
+
+    if let Some(path) = socket_path() {
+        let _ = std::fs::remove_file(&path); // left over from a crashed tray
+        match UnixListener::bind(&path) {
+            Ok(listener) => {
+                let handle = handle.clone();
+                thread::spawn(move || {
+                    for mut stream in listener.incoming().flatten() {
+                        let mut msg = String::new();
+                        let _ = stream.read_to_string(&mut msg);
+                        if msg == "open" {
+                            handle.update(Tray::open_window);
+                        }
+                    }
+                });
+            }
+            Err(e) => eprintln!("brightness: can't listen on {}: {e}", path.display()),
+        }
+    }
+
     let _ = quit_rx.recv();
     // An open window stays open
     handle.shutdown().wait();
+    if let Some(path) = socket_path() {
+        let _ = std::fs::remove_file(path);
+    }
     Ok(())
 }

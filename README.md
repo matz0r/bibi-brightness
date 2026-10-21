@@ -64,13 +64,16 @@ cp assets/icon.png ~/.local/share/icons/hicolor/256x256/apps/bibi-brightness.png
 
 ## Tray icon (Linux)
 
-`brightness --tray` puts an icon in the panel instead of opening the window.
-Click it to show or hide the sliders; right-click for Open / Quit. Works on
-desktops with StatusNotifierItem support (KDE, Cinnamon, XFCE, MATE, LXQt,
-Budgie, Waybar; GNOME only with the AppIndicator extension). Without one,
-`--tray` just opens the window.
+`brightness` opens the window and puts an icon in the panel; closing the
+window keeps it running there. `brightness --tray` starts with the icon only.
+Click the icon to show or hide the sliders; right-click for Open / Quit.
+Starting `brightness` again while it runs just opens the window.
 
-Start it on login:
+Works on desktops with StatusNotifierItem support (KDE, Cinnamon, XFCE, MATE,
+LXQt, Budgie, Waybar; GNOME only with the AppIndicator extension). Without
+one, it is a plain window again and closing it quits.
+
+Start it hidden on login:
 
 ```bash
 mkdir -p ~/.config/autostart
