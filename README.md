@@ -2,14 +2,14 @@
 
 # BIBI Brightness
 
-**Change brightness of your displays with a simple UI using a single binary.**
+**Change brightness of your displays with a simple cross-platform UI in a single binary.**
 
 Cross-Platform tool to change monitor brightness over DDC/CI. Talks to the monitors directly
 (no ddcutil needed). DDC/CI must be enabled in the monitor's menu.
 
 ## Download
 
-Prebuilt binaries for Linux and Windows (x86_64) are attached to each
+Prebuilt binaries for Linux and Windows are attached to each
 [release](https://github.com/matz0r/bibi-brightness/releases).
 
 ## Windows
@@ -56,27 +56,9 @@ cp assets/icon.png ~/.local/share/icons/hicolor/256x256/apps/bibi-brightness.png
 - **Presets** (e.g. 60 / 25) set linked monitors to the first value and all
   other monitors to the second.
 
-## Tray icon (Linux)
-
-`brightness` opens the window and puts an icon in the panel; closing the
-window keeps it running there. `brightness --tray` starts with the icon only.
-Click the icon to show or hide the sliders; right-click for Open / Quit.
-Starting `brightness` again while it runs just opens the window.
-
-Works on desktops with StatusNotifierItem support (KDE, Cinnamon, XFCE, MATE,
-LXQt, Budgie, Waybar; GNOME only with the AppIndicator extension). Without
-one, it is a plain window again and closing it quits.
-
-Start it hidden on login:
-
-```bash
-mkdir -p ~/.config/autostart
-sed 's|brightness"|brightness --tray"|' ~/.local/share/applications/brightness.desktop > ~/.config/autostart/brightness-tray.desktop
-```
-
 ## Development
 
-Building from source, changing presets and releasing: see
+Tray icon, building from source, changing presets and releasing: see
 [DEVELOPMENT.md](https://github.com/matz0r/bibi-brightness/blob/main/DEVELOPMENT.md).
 
 Third-party license notices are in `THIRD-PARTY-LICENSES.html`, included with

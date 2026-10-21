@@ -1,5 +1,23 @@
 # Development
 
+## Tray icon (Linux)
+
+`brightness` opens the window and puts an icon in the panel; closing the
+window keeps it running there. `brightness --tray` starts with the icon only.
+Click the icon to show or hide the sliders; right-click for Open / Quit.
+Starting `brightness` again while it runs just opens the window.
+
+Works on desktops with StatusNotifierItem support (KDE, Cinnamon, XFCE, MATE,
+LXQt, Budgie, Waybar; GNOME only with the AppIndicator extension). Without
+one, it is a plain window again and closing it quits.
+
+Start it hidden on login:
+
+```bash
+mkdir -p ~/.config/autostart
+sed 's|brightness"|brightness --tray"|' ~/.local/share/applications/brightness.desktop > ~/.config/autostart/brightness-tray.desktop
+```
+
 ## Build (Linux)
 
 ```bash
