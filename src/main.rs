@@ -8,6 +8,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 #[cfg(target_os = "linux")]
+mod setup;
+#[cfg(target_os = "linux")]
 mod tray;
 
 const BRIGHTNESS: u8 = 0x10; // VCP feature code for brightness
@@ -26,6 +28,9 @@ struct Monitor {
 enum Cmd {
     Scan,
     Set(usize, f32),
+    /// Linux: one-time i2c access setup, then rescan
+    #[cfg(target_os = "linux")]
+    Setup,
 }
 
 /// worker -> UI
@@ -33,6 +38,8 @@ enum Event {
     Scanning,
     Found(Vec<Monitor>),
     SetFailed(usize, String),
+    #[cfg(target_os = "linux")]
+    SetupFailed(String),
 }
 
 fn main() -> eframe::Result {
@@ -78,14 +85,28 @@ fn worker(rx: Receiver<Cmd>, tx: Sender<Event>, ctx: egui::Context) {
 
     while let Ok(first) = rx.recv() {
         let mut scan = false;
+        #[cfg(target_os = "linux")]
+        let mut setup = false;
         let mut sets: HashMap<usize, f32> = HashMap::new();
         for cmd in std::iter::once(first).chain(rx.try_iter()) {
             match cmd {
                 Cmd::Scan => scan = true,
+                #[cfg(target_os = "linux")]
+                Cmd::Setup => setup = true,
                 Cmd::Set(i, v) => {
                     sets.insert(i, v);
                 }
             }
+        }
+
+        #[cfg(target_os = "linux")]
+        if setup {
+            if let Err(e) = setup::run() {
+                let _ = tx.send(Event::SetupFailed(e));
+                ctx.request_repaint();
+                continue;
+            }
+            scan = true;
         }
 
         if scan {
@@ -205,34 +226,32 @@ fn display_key(info: &DisplayInfo) -> String {
     )
 }
 
-fn no_monitor_hint() -> String {
+/// Why no monitor was found, and whether "Set up access" can fix it.
+fn no_monitor_hint(setup_tried: bool) -> (String, bool) {
     #[cfg(target_os = "linux")]
-    {
-        let devs: Vec<_> = std::fs::read_dir("/dev")
-            .map(|rd| {
-                rd.flatten()
-                    .filter(|e| e.file_name().to_string_lossy().starts_with("i2c-"))
-                    .map(|e| e.path())
-                    .collect()
-            })
-            .unwrap_or_default();
-        if devs.is_empty() {
-            return "No /dev/i2c-* devices found. Run: sudo modprobe i2c-dev".into();
+    match setup::check() {
+        setup::Access::Ok => {}
+        _ if setup_tried => {
+            return (
+                "Still no access to the monitors. Log out and back in, or see the README \
+                 for manual setup."
+                    .into(),
+                false,
+            );
         }
-        let accessible = devs.iter().any(|p| {
-            std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(p)
-                .is_ok()
-        });
-        if !accessible {
-            return "No permission for /dev/i2c-*. Run: sudo usermod -aG i2c $USER \
-                    then log out and back in."
-                .into();
+        setup::Access::NoDevices | setup::Access::NoPermission => {
+            return (
+                "Brightness needs a one-time setup to talk to your monitors.".into(),
+                true,
+            );
         }
     }
-    "No monitors with DDC/CI found. Check that DDC/CI is enabled in the monitor's menu.".into()
+    let _ = setup_tried;
+    (
+        "No monitors with DDC/CI found. Check that DDC/CI is enabled in the monitor's menu."
+            .into(),
+        false,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +321,9 @@ struct App {
     linked: HashSet<String>, // keys of monitors whose sliders move together
     scanning: bool,
     status: Option<String>,
+    offer_setup: bool, // show the "Set up access" button (Linux)
+    setting_up: bool,
+    setup_tried: bool,
 }
 
 impl App {
@@ -332,6 +354,9 @@ impl App {
             linked,
             scanning: true,
             status: None,
+            offer_setup: false,
+            setting_up: false,
+            setup_tried: false,
         }
     }
 
@@ -435,7 +460,14 @@ impl App {
                 }
                 Event::Found(monitors) => {
                     self.scanning = false;
-                    self.status = monitors.is_empty().then(no_monitor_hint);
+                    self.setting_up = false;
+                    self.offer_setup = false;
+                    self.status = None;
+                    if monitors.is_empty() {
+                        let (hint, offer_setup) = no_monitor_hint(self.setup_tried);
+                        self.status = Some(hint);
+                        self.offer_setup = offer_setup;
+                    }
                     self.monitors = monitors;
                     for m in &mut self.monitors {
                         m.percent = m.percent.round();
@@ -444,6 +476,11 @@ impl App {
                 Event::SetFailed(i, e) => {
                     let name = self.monitors.get(i).map_or("Monitor", |m| m.name.as_str());
                     self.status = Some(format!("{name}: {e}"));
+                }
+                #[cfg(target_os = "linux")]
+                Event::SetupFailed(e) => {
+                    self.setting_up = false;
+                    self.status = Some(e);
                 }
             }
         }
@@ -463,7 +500,10 @@ impl eframe::App for App {
                     ui.label(egui::RichText::new("Brightness").size(20.0).strong().color(SUN));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .add_enabled(!self.scanning, egui::Button::new("Rescan"))
+                            .add_enabled(
+                                !self.scanning && !self.setting_up,
+                                egui::Button::new("Rescan"),
+                            )
                             .on_hover_text("Search for monitors again")
                             .clicked()
                         {
@@ -474,7 +514,12 @@ impl eframe::App for App {
                 });
                 ui.add_space(6.0);
 
-                if self.scanning {
+                if self.setting_up {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Setting up access, enter your password in the dialog…");
+                    });
+                } else if self.scanning {
                     ui.horizontal(|ui| {
                         ui.spinner();
                         ui.label("Searching for monitors…");
@@ -513,6 +558,23 @@ impl eframe::App for App {
                 if let Some(status) = &self.status {
                     ui.add_space(4.0);
                     ui.colored_label(ui.visuals().warn_fg_color, status);
+                }
+
+                #[cfg(target_os = "linux")]
+                if self.offer_setup && !self.scanning && !self.setting_up {
+                    ui.add_space(4.0);
+                    if ui
+                        .add(egui::Button::new("Set up access").selected(true))
+                        .on_hover_text(
+                            "Asks for your password once, then lets this app (and you) \
+                             change monitor brightness",
+                        )
+                        .clicked()
+                    {
+                        self.setting_up = true;
+                        self.setup_tried = true;
+                        let _ = self.tx.send(Cmd::Setup);
+                    }
                 }
             });
 
