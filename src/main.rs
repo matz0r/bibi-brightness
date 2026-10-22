@@ -8,6 +8,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 #[cfg(target_os = "linux")]
+mod autostart;
+#[cfg(target_os = "linux")]
 mod setup;
 #[cfg(target_os = "linux")]
 mod tray;
@@ -324,6 +326,8 @@ struct App {
     offer_setup: bool, // show the "Set up access" button (Linux)
     setting_up: bool,
     setup_tried: bool,
+    #[cfg(target_os = "linux")]
+    autostart: bool,
 }
 
 impl App {
@@ -357,6 +361,8 @@ impl App {
             offer_setup: false,
             setting_up: false,
             setup_tried: false,
+            #[cfg(target_os = "linux")]
+            autostart: autostart::enabled(),
         }
     }
 
@@ -509,6 +515,22 @@ impl eframe::App for App {
                         {
                             self.scanning = true;
                             let _ = self.tx.send(Cmd::Scan);
+                        }
+
+                        #[cfg(target_os = "linux")]
+                        if ui
+                            .add(egui::Button::new("Autostart").selected(self.autostart))
+                            .on_hover_text(if self.autostart {
+                                "Starts in the panel when you log in. Click to turn off"
+                            } else {
+                                "Start in the panel when you log in"
+                            })
+                            .clicked()
+                        {
+                            match autostart::set(!self.autostart) {
+                                Ok(()) => self.autostart = !self.autostart,
+                                Err(e) => self.status = Some(e),
+                            }
                         }
                     });
                 });

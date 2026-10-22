@@ -11,12 +11,10 @@ Works on desktops with StatusNotifierItem support (KDE, Cinnamon, XFCE, MATE,
 LXQt, Budgie, Waybar; GNOME only with the AppIndicator extension). Without
 one, it is a plain window again and closing it quits.
 
-Start it hidden on login:
-
-```bash
-mkdir -p ~/.config/autostart
-sed 's|brightness"|brightness --tray"|' ~/.local/share/applications/brightness.desktop > ~/.config/autostart/brightness-tray.desktop
-```
+The **Autostart** button (`src/autostart.rs`) starts it hidden on login: it
+writes `~/.config/autostart/brightness-tray.desktop`, which runs the current
+binary with `--tray`. Clicking it again removes the file. If you move the
+binary, toggle it off and on to update the path.
 
 ## Build (Linux)
 
