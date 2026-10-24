@@ -23,12 +23,19 @@ const PRESETS: &[(u8, u8)] = &[(45, 20), (67, 25), (75, 33), (80, 40), (90, 45)]
 struct Monitor {
     key: String,  // stable identity (model + serial), used to remember links
     name: String, // shown in the UI
+    slot: String, // where it was found (position + system id), see `Known`
     percent: f32,
 }
 
+/// Key and name of the monitor last seen in each slot, so a scan can skip
+/// asking the monitor for its name (slow on Windows). The name is checked
+/// again in the background after the sliders are shown.
+type Known = HashMap<String, (String, String)>;
+
 /// UI -> worker
 enum Cmd {
-    Scan,
+    /// Find the monitors. An empty `Known` asks every monitor for its name.
+    Scan(Known),
     Set(usize, f32),
     /// Linux: one-time i2c access setup, then rescan
     #[cfg(target_os = "linux")]
@@ -39,6 +46,8 @@ enum Cmd {
 enum Event {
     Scanning,
     Found(Vec<Monitor>),
+    /// Corrected (key, name) of every monitor after a background name check
+    Names(Vec<(String, String)>),
     SetFailed(usize, String),
     #[cfg(target_os = "linux")]
     SetupFailed(String),
@@ -84,15 +93,50 @@ fn main() -> eframe::Result {
 
 fn worker(rx: Receiver<Cmd>, tx: Sender<Event>, ctx: egui::Context) {
     let mut displays: Vec<(Display, u16)> = Vec::new(); // (handle, max value)
+    let mut names: Vec<(String, String)> = Vec::new(); // (key, name) per display
+    let mut sent_names = Vec::new(); // what the UI has
+    let mut unchecked: Vec<usize> = Vec::new(); // names taken from `Known`
 
-    while let Ok(first) = rx.recv() {
-        let mut scan = false;
+    loop {
+        // Check one name at a time while idle, so slider moves don't wait
+        // for all of them
+        let first = if unchecked.is_empty() {
+            match rx.recv() {
+                Ok(cmd) => cmd,
+                Err(_) => return,
+            }
+        } else {
+            match rx.try_recv() {
+                Ok(cmd) => cmd,
+                Err(mpsc::TryRecvError::Empty) => {
+                    let i = unchecked.remove(0);
+                    let d = &mut displays[i].0;
+                    let _ = d.update_capabilities();
+                    let mut raw: Vec<_> =
+                        names.iter().map(|(k, n)| (k.clone(), n.clone())).collect();
+                    raw[i] = (display_key(&d.info), display_name(&d.info));
+                    // Send once all are checked; in between, identical
+                    // models would flicker between names
+                    let checked = unique_names(raw, &displays);
+                    names = checked;
+                    if unchecked.is_empty() && names != sent_names {
+                        sent_names = names.clone();
+                        let _ = tx.send(Event::Names(names.clone()));
+                        ctx.request_repaint();
+                    }
+                    continue;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => return,
+            }
+        };
+
+        let mut scan = None;
         #[cfg(target_os = "linux")]
         let mut setup = false;
         let mut sets: HashMap<usize, f32> = HashMap::new();
         for cmd in std::iter::once(first).chain(rx.try_iter()) {
             match cmd {
-                Cmd::Scan => scan = true,
+                Cmd::Scan(known) => scan = Some(known),
                 #[cfg(target_os = "linux")]
                 Cmd::Setup => setup = true,
                 Cmd::Set(i, v) => {
@@ -108,14 +152,20 @@ fn worker(rx: Receiver<Cmd>, tx: Sender<Event>, ctx: egui::Context) {
                 ctx.request_repaint();
                 continue;
             }
-            scan = true;
+            scan = Some(Known::new());
         }
 
-        if scan {
+        if let Some(known) = scan {
             let _ = tx.send(Event::Scanning);
             ctx.request_repaint();
-            let (found, infos) = scan_displays();
+            let (found, infos, from_known) = scan_displays(&known);
             displays = found;
+            names = infos
+                .iter()
+                .map(|m| (m.key.clone(), m.name.clone()))
+                .collect();
+            sent_names = names.clone();
+            unchecked = from_known;
             let _ = tx.send(Event::Found(infos));
             ctx.request_repaint();
             continue; // queued indices referred to the old list
@@ -146,7 +196,9 @@ fn retry<T, E>(attempts: u32, mut f: impl FnMut() -> Result<T, E>) -> Result<T, 
     result
 }
 
-fn scan_displays() -> (Vec<(Display, u16)>, Vec<Monitor>) {
+/// Returns the monitors that answer DDC/CI brightness, and the indices of
+/// those whose name came from `known` instead of the monitor.
+fn scan_displays(known: &Known) -> (Vec<(Display, u16)>, Vec<Monitor>, Vec<usize>) {
     let mut found = Display::enumerate();
     // On Linux the id is the /dev/i2c-N device number, so this sorts by bus
     // number (matches ddcutil's order); elsewhere it sorts by name.
@@ -158,35 +210,66 @@ fn scan_displays() -> (Vec<(Display, u16)>, Vec<Monitor>) {
     });
 
     let mut displays = Vec::new();
-    let mut monitors: Vec<Monitor> = Vec::new();
-    for mut d in found {
+    let mut raw = Vec::new(); // (key, name) before telling identical models apart
+    let mut slots = Vec::new();
+    let mut percents = Vec::new();
+    let mut from_known = Vec::new();
+    for (n, mut d) in found.into_iter().enumerate() {
         // Skip outputs that don't answer DDC/CI brightness (laptop panels, some TVs, …)
         let Ok(value) = retry(3, || d.handle.get_vcp_feature(BRIGHTNESS)) else {
             continue;
         };
         let max = value.maximum().max(1);
         // Windows (dxva2) gives no EDID, only "Generic PnP Monitor"; ask the
-        // monitor for its model name instead.
-        if d.info.model_name.is_none() {
-            let _ = d.update_capabilities();
+        // monitor for its model name instead. That takes a second or two per
+        // monitor, so use the name from last time if this slot had one and
+        // check it later.
+        let slot = format!("{n}|{}", d.info.id);
+        match known.get(&slot) {
+            Some(key_name) if d.info.model_name.is_none() => {
+                from_known.push(displays.len());
+                raw.push(key_name.clone());
+            }
+            _ => {
+                if d.info.model_name.is_none() {
+                    let _ = d.update_capabilities();
+                }
+                raw.push((display_key(&d.info), display_name(&d.info)));
+            }
         }
-
-        let mut key = display_key(&d.info);
-        if monitors.iter().any(|m| m.key == key) {
-            key = format!("{key}#{}", monitors.len()); // identical models without serials
-        }
-        monitors.push(Monitor {
-            key,
-            name: display_name(&d.info),
-            percent: value.value() as f32 * 100.0 / max as f32,
-        });
+        slots.push(slot);
+        percents.push(value.value() as f32 * 100.0 / max as f32);
         displays.push((d, max));
     }
 
-    // Identical models: add the end of the serial so the sliders can be told apart
-    let names: Vec<String> = monitors.iter().map(|m| m.name.clone()).collect();
-    for (n, (m, (d, _))) in monitors.iter_mut().zip(&displays).enumerate() {
-        if names.iter().filter(|&name| *name == m.name).count() > 1 {
+    let monitors = unique_names(raw, &displays)
+        .into_iter()
+        .zip(slots)
+        .zip(percents)
+        .map(|(((key, name), slot), percent)| Monitor {
+            key,
+            name,
+            slot,
+            percent,
+        })
+        .collect();
+    (displays, monitors, from_known)
+}
+
+/// Tells identical models apart: a running number on the key (when there is
+/// no serial) and the end of the serial on the name.
+fn unique_names(
+    mut raw: Vec<(String, String)>,
+    displays: &[(Display, u16)],
+) -> Vec<(String, String)> {
+    for i in 0..raw.len() {
+        if raw[..i].iter().any(|(key, _)| *key == raw[i].0) {
+            raw[i].0 = format!("{}#{i}", raw[i].0);
+        }
+    }
+    let names: Vec<String> = raw.iter().map(|(_, name)| name.clone()).collect();
+    for (n, ((_, name), (d, _))) in raw.iter_mut().zip(displays).enumerate() {
+        if names.iter().filter(|&other| other == name).count() > 1 {
             let serial: Vec<char> = display_serial(&d.info).chars().collect();
             let tail: String = serial[serial.len().saturating_sub(4)..].iter().collect();
             let tail = if tail.is_empty() {
@@ -194,10 +277,10 @@ fn scan_displays() -> (Vec<(Display, u16)>, Vec<Monitor>) {
             } else {
                 tail
             };
-            m.name = format!("{} ({tail})", m.name);
+            *name = format!("{name} ({tail})");
         }
     }
-    (displays, monitors)
+    raw
 }
 
 fn display_name(info: &DisplayInfo) -> String {
@@ -321,6 +404,10 @@ struct App {
     monitors: Vec<Monitor>,
     linked: HashSet<String>, // keys of monitors whose sliders move together
     scanning: bool,
+    /// Showing the monitors from last run while the scan confirms them
+    refreshing: bool,
+    /// Keys of monitors moved while refreshing; sent once the scan is done
+    touched: HashSet<String>,
     status: Option<String>,
     offer_setup: bool, // show the "Set up access" button (Linux)
     setting_up: bool,
@@ -336,9 +423,9 @@ impl App {
         set_style(&cc.egui_ctx);
         let ctx = cc.egui_ctx.clone();
         thread::spawn(move || worker(cmd_rx, ev_tx, ctx));
-        let _ = cmd_tx.send(Cmd::Scan);
 
-        // Links saved from last run (~/.local/share/brightness/ on Linux)
+        // Links and monitors saved from last run (~/.local/share/brightness/
+        // on Linux, %APPDATA%\brightness\ on Windows)
         let linked = cc
             .storage
             .and_then(|s| s.get_string("linked"))
@@ -349,19 +436,42 @@ impl App {
                     .collect()
             })
             .unwrap_or_default();
+        // Shown right away; the scan takes seconds and corrects them
+        let monitors: Vec<Monitor> = cc
+            .storage
+            .and_then(|s| s.get_string("monitors"))
+            .map(|s| s.lines().filter_map(parse_monitor).collect())
+            .unwrap_or_default();
+        let known = monitors
+            .iter()
+            .map(|m| (m.slot.clone(), (m.key.clone(), m.name.clone())))
+            .collect();
+        let _ = cmd_tx.send(Cmd::Scan(known));
 
         Self {
             tx: cmd_tx,
             rx: ev_rx,
-            monitors: Vec::new(),
+            scanning: monitors.is_empty(),
+            refreshing: !monitors.is_empty(),
+            touched: HashSet::new(),
+            monitors,
             linked,
-            scanning: true,
             status: None,
             offer_setup: false,
             setting_up: false,
             setup_tried: false,
             #[cfg(any(target_os = "linux", windows))]
             autostart: autostart::enabled(),
+        }
+    }
+
+    /// Sends a slider value to the monitor, or keeps it for after the scan
+    fn send_set(&mut self, j: usize, value: f32) {
+        self.monitors[j].percent = value;
+        if self.refreshing {
+            self.touched.insert(self.monitors[j].key.clone());
+        } else {
+            let _ = self.tx.send(Cmd::Set(j, value));
         }
     }
 
@@ -374,8 +484,7 @@ impl App {
         let follow = self.is_linked(i);
         for j in 0..self.monitors.len() {
             if j == i || (follow && self.is_linked(j)) {
-                self.monitors[j].percent = value;
-                let _ = self.tx.send(Cmd::Set(j, value));
+                self.send_set(j, value);
             }
         }
     }
@@ -384,8 +493,7 @@ impl App {
     fn apply_preset(&mut self, linked: f32, other: f32) {
         for j in 0..self.monitors.len() {
             let v = if self.is_linked(j) { linked } else { other };
-            self.monitors[j].percent = v;
-            let _ = self.tx.send(Cmd::Set(j, v));
+            self.send_set(j, v);
         }
     }
 
@@ -455,14 +563,34 @@ impl App {
         }
     }
 
-    fn handle_events(&mut self) {
+    /// Returns true if the monitor list changed and should be saved.
+    fn handle_events(&mut self) -> bool {
+        let mut changed = false;
         while let Ok(ev) = self.rx.try_recv() {
             match ev {
                 Event::Scanning => {
-                    self.scanning = true;
+                    // Last run's sliders stay usable while refreshing
+                    self.scanning = !self.refreshing;
                     self.status = None;
                 }
-                Event::Found(monitors) => {
+                Event::Found(mut monitors) => {
+                    changed = true;
+                    for m in &mut monitors {
+                        m.percent = m.percent.round();
+                    }
+                    // What was moved while refreshing wins over what the
+                    // monitor reported
+                    let moved: Vec<(usize, f32)> = monitors
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, m)| self.touched.contains(&m.key))
+                        .filter_map(|(j, m)| {
+                            let old = self.monitors.iter().find(|o| o.key == m.key)?;
+                            Some((j, old.percent))
+                        })
+                        .collect();
+                    self.touched.clear();
+                    self.refreshing = false;
                     self.scanning = false;
                     self.setting_up = false;
                     self.offer_setup = false;
@@ -473,8 +601,15 @@ impl App {
                         self.offer_setup = offer_setup;
                     }
                     self.monitors = monitors;
-                    for m in &mut self.monitors {
-                        m.percent = m.percent.round();
+                    for (j, v) in moved {
+                        self.send_set(j, v);
+                    }
+                }
+                Event::Names(names) => {
+                    changed = true;
+                    for (m, (key, name)) in self.monitors.iter_mut().zip(names) {
+                        m.key = key;
+                        m.name = name;
                     }
                 }
                 Event::SetFailed(i, e) => {
@@ -488,13 +623,13 @@ impl App {
                 }
             }
         }
+        changed
     }
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        self.handle_events();
-        let mut links_changed = false;
+        let mut save_now = self.handle_events();
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(NIGHT).inner_margin(16))
@@ -507,17 +642,22 @@ impl eframe::App for App {
                             .strong()
                             .color(SUN),
                     );
+                    if self.refreshing {
+                        ui.spinner().on_hover_text("Checking the monitors…");
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .add_enabled(
-                                !self.scanning && !self.setting_up,
+                                !self.scanning && !self.refreshing && !self.setting_up,
                                 egui::Button::new("Rescan"),
                             )
                             .on_hover_text("Search for monitors again")
                             .clicked()
                         {
+                            // Asks every monitor for its name again, in
+                            // case monitors were swapped between ports
                             self.scanning = true;
-                            let _ = self.tx.send(Cmd::Scan);
+                            let _ = self.tx.send(Cmd::Scan(Known::new()));
                         }
 
                         #[cfg(any(target_os = "linux", windows))]
@@ -574,7 +714,7 @@ impl eframe::App for App {
 
                     for i in 0..self.monitors.len() {
                         if self.monitor_card(ui, i) {
-                            links_changed = true;
+                            save_now = true;
                         }
                         ui.add_space(4.0);
                     }
@@ -603,8 +743,8 @@ impl eframe::App for App {
                 }
             });
 
-        // Save links right away instead of only on a clean exit
-        if links_changed && let Some(storage) = frame.storage_mut() {
+        // Save right away: the tray ends this process instead of closing it
+        if save_now && let Some(storage) = frame.storage_mut() {
             self.save(storage);
             storage.flush();
         }
@@ -614,5 +754,28 @@ impl eframe::App for App {
         let mut keys: Vec<_> = self.linked.iter().cloned().collect();
         keys.sort();
         storage.set_string("linked", keys.join("\n"));
+        let monitors: Vec<String> = self
+            .monitors
+            .iter()
+            .map(|m| format!("{}\t{}\t{}\t{}", m.slot, m.key, m.name, m.percent))
+            .collect();
+        storage.set_string("monitors", monitors.join("\n"));
     }
+}
+
+/// One line of the saved monitor list: slot, key, name, percent.
+fn parse_monitor(line: &str) -> Option<Monitor> {
+    let mut fields = line.split('\t');
+    let (slot, key, name, percent) = (
+        fields.next()?,
+        fields.next()?,
+        fields.next()?,
+        fields.next()?,
+    );
+    Some(Monitor {
+        slot: slot.into(),
+        key: key.into(),
+        name: name.into(),
+        percent: percent.parse().ok()?,
+    })
 }
