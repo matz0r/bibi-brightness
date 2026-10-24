@@ -58,5 +58,7 @@ Push a version tag, e.g. `git tag v0.1.0 && git push origin v0.1.0`. GitHub
 Actions (`.github/workflows/release.yml`) builds Linux and Windows binaries,
 generates the license notices with
 [cargo-about](https://github.com/EmbarkStudios/cargo-about) (`about.toml`,
-`about.hbs`) and attaches both to the release. Running the workflow manually
-only builds the packages as workflow artifacts.
+`about.hbs`) and attaches both to the release. Without git: Actions → Release → Run
+workflow on `main` with a tag such as `v0.5.0`; it creates the tag and the
+release the same way. Running it with the tag left empty only builds the
+packages as workflow artifacts.

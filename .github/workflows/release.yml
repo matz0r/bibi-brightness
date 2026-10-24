@@ -1,12 +1,22 @@
 name: Release
 
 # Push a tag like v0.1.0 to build Linux and Windows binaries and attach them
-# to a GitHub release. "Run workflow" (manual) only builds and uploads the
-# packages as workflow artifacts, without creating a release.
+# to a GitHub release. "Run workflow" (manual) with a tag creates that tag on
+# the chosen branch and releases it the same way; without a tag it only builds
+# and uploads the packages as workflow artifacts.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create, e.g. v0.5.0 (empty: only build)"
+        required: false
+        default: ""
+
+env:
+  # The tag being released, empty for a build-only run
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
 
 permissions:
   contents: read
@@ -49,8 +59,8 @@ jobs:
 
       - name: Package
         run: |
-          version=${GITHUB_REF_NAME#v}
-          [[ $GITHUB_REF == refs/tags/* ]] || version=${GITHUB_SHA::7}
+          version=${TAG#v}
+          [[ -n $TAG ]] || version=${GITHUB_SHA::7}
           name=bibi-brightness-$version-${{ matrix.platform }}
           mkdir -p "$name" dist
           cp LICENSE README.md THIRD-PARTY-LICENSES.html "$name"/
@@ -70,7 +80,7 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.ref_type == 'tag' || inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -83,4 +93,5 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        # --target creates the tag at the built commit if it doesn't exist yet
+        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --target "$GITHUB_SHA"
