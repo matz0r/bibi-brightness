@@ -55,7 +55,10 @@ cp assets/icon.png ~/.local/share/icons/hicolor/256x256/apps/bibi-brightness.png
 - Links are remembered per monitor model/serial.
 - **Presets** (e.g. 60 / 25) set linked monitors to the first value and all
   other monitors to the second.
-- **Autostart** (Linux) starts Brightness in the panel when you log in.
+- Closing the window keeps Brightness running as an icon in the panel
+  (Linux) or the notification area next to the clock (Windows). Click the
+  icon to show or hide the sliders; right-click it for **Quit**.
+- **Autostart** starts Brightness in the tray when you log in.
   Click it again to turn it off.
 
 ## Development

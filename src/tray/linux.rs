@@ -1,52 +1,24 @@
-// ---------------------------------------------------------------------------
-// Tray icon (Linux, StatusNotifierItem over D-Bus): KDE, Cinnamon, XFCE,
-// MATE, LXQt, Budgie, Waybar, GNOME with the AppIndicator extension.
-//
-// The window runs as a child process (the same binary with --window):
-// winit allows only one event loop per process and can't hide a window on
-// Wayland, so "closing to the tray" means ending that process.
-//
-// Only one tray runs per user. A second start finds it through a socket in
-// $XDG_RUNTIME_DIR and asks it to open the window instead.
-// ---------------------------------------------------------------------------
+// Linux tray icon (StatusNotifierItem over D-Bus): KDE, Cinnamon, XFCE, MATE,
+// LXQt, Budgie, Waybar, GNOME with the AppIndicator extension. A second start
+// finds the running tray through a socket in $XDG_RUNTIME_DIR.
 
 use ksni::blocking::TrayMethods;
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::process::{Child, Command};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
+use super::Window;
+
 struct Tray {
-    window: Option<Child>,
+    window: Window,
     quit: Sender<()>,
 }
 
 impl Tray {
-    fn window_open(&mut self) -> bool {
-        // try_wait also reaps a window the user closed
-        matches!(self.window.as_mut().map(Child::try_wait), Some(Ok(None)))
-    }
-
     fn open_window(&mut self) {
-        if self.window_open() {
-            return;
-        }
-        match std::env::current_exe().and_then(|exe| Command::new(exe).arg("--window").spawn()) {
-            Ok(child) => self.window = Some(child),
-            Err(e) => eprintln!("brightness: can't start the window: {e}"),
-        }
-    }
-
-    fn close_window(&mut self) {
-        // Links are saved as soon as they change, so killing loses nothing
-        if self.window_open()
-            && let Some(mut child) = self.window.take()
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        self.window.open();
     }
 }
 
@@ -75,11 +47,7 @@ impl ksni::Tray for Tray {
 
     /// Left click: show the window, or close it if it is open
     fn activate(&mut self, _x: i32, _y: i32) {
-        if self.window_open() {
-            self.close_window();
-        } else {
-            self.open_window();
-        }
+        self.window.toggle();
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -107,7 +75,7 @@ impl ksni::Tray for Tray {
 
 /// The app icon in a few sizes, so the panel doesn't have to scale 256 px down.
 fn icon_pixmaps() -> Vec<ksni::Icon> {
-    let img = image::load_from_memory(include_bytes!("../assets/icon.png"))
+    let img = image::load_from_memory(include_bytes!("../../assets/icon.png"))
         .expect("bundled icon is a valid PNG")
         .into_rgba8();
     [16, 22, 24, 32, 48, 64]
@@ -154,7 +122,7 @@ pub fn run(show_window: bool) -> Result<(), ksni::Error> {
 
     let (quit_tx, quit_rx) = mpsc::channel();
     let handle = Tray {
-        window: None,
+        window: Window::default(),
         quit: quit_tx,
     }
     .spawn()?;

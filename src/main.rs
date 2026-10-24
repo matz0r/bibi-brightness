@@ -7,11 +7,11 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod autostart;
 #[cfg(target_os = "linux")]
 mod setup;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod tray;
 
 const BRIGHTNESS: u8 = 0x10; // VCP feature code for brightness
@@ -45,10 +45,10 @@ enum Event {
 }
 
 fn main() -> eframe::Result {
-    // Linux: icon in the panel; closing the window keeps it running there.
-    // --tray starts hidden (autostart), --window is the window process the
-    // tray starts.
-    #[cfg(target_os = "linux")]
+    // Icon in the panel (Linux) or notification area (Windows); closing the
+    // window keeps it running there. --tray starts hidden (autostart),
+    // --window is the window process the tray starts.
+    #[cfg(any(target_os = "linux", windows))]
     if !std::env::args().skip(1).any(|a| a == "--window") {
         let hidden = std::env::args().skip(1).any(|a| a == "--tray");
         match tray::run(!hidden) {
@@ -250,8 +250,7 @@ fn no_monitor_hint(setup_tried: bool) -> (String, bool) {
     }
     let _ = setup_tried;
     (
-        "No monitors with DDC/CI found. Check that DDC/CI is enabled in the monitor's menu."
-            .into(),
+        "No monitors with DDC/CI found. Check that DDC/CI is enabled in the monitor's menu.".into(),
         false,
     )
 }
@@ -326,7 +325,7 @@ struct App {
     offer_setup: bool, // show the "Set up access" button (Linux)
     setting_up: bool,
     setup_tried: bool,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     autostart: bool,
 }
 
@@ -361,7 +360,7 @@ impl App {
             offer_setup: false,
             setting_up: false,
             setup_tried: false,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             autostart: autostart::enabled(),
         }
     }
@@ -393,9 +392,8 @@ impl App {
     /// Whether all monitors are at the values of this preset.
     fn preset_active(&self, linked: f32, other: f32) -> bool {
         !self.monitors.is_empty()
-            && (0..self.monitors.len()).all(|j| {
-                self.monitors[j].percent == if self.is_linked(j) { linked } else { other }
-            })
+            && (0..self.monitors.len())
+                .all(|j| self.monitors[j].percent == if self.is_linked(j) { linked } else { other })
     }
 
     /// One monitor: name, link toggle and slider. Returns true if the link changed.
@@ -503,7 +501,12 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     sun_icon(ui, 22.0);
-                    ui.label(egui::RichText::new("Brightness").size(20.0).strong().color(SUN));
+                    ui.label(
+                        egui::RichText::new("Brightness")
+                            .size(20.0)
+                            .strong()
+                            .color(SUN),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .add_enabled(
@@ -517,13 +520,13 @@ impl eframe::App for App {
                             let _ = self.tx.send(Cmd::Scan);
                         }
 
-                        #[cfg(target_os = "linux")]
+                        #[cfg(any(target_os = "linux", windows))]
                         if ui
                             .add(egui::Button::new("Autostart").selected(self.autostart))
                             .on_hover_text(if self.autostart {
-                                "Starts in the panel when you log in. Click to turn off"
+                                "Starts in the tray when you log in. Click to turn off"
                             } else {
-                                "Start in the panel when you log in"
+                                "Start in the tray when you log in"
                             })
                             .clicked()
                         {

@@ -1,20 +1,27 @@
 # Development
 
-## Tray icon (Linux)
+## Tray icon
 
-`brightness` opens the window and puts an icon in the panel; closing the
-window keeps it running there. `brightness --tray` starts with the icon only.
-Click the icon to show or hide the sliders; right-click for Open / Quit.
-Starting `brightness` again while it runs just opens the window.
+`brightness` opens the window and puts an icon in the panel (Linux) or the
+notification area (Windows); closing the window keeps it running there.
+`brightness --tray` starts with the icon only. Click the icon to show or hide
+the sliders; right-click for Open / Quit. Starting `brightness` again while it
+runs just opens the window. The window is a child process (`--window`), so
+closing it ends that process (`src/tray/`).
 
-Works on desktops with StatusNotifierItem support (KDE, Cinnamon, XFCE, MATE,
-LXQt, Budgie, Waybar; GNOME only with the AppIndicator extension). Without
-one, it is a plain window again and closing it quits.
+Linux needs StatusNotifierItem support (KDE, Cinnamon, XFCE, MATE, LXQt,
+Budgie, Waybar; GNOME only with the AppIndicator extension). Without it, it is
+a plain window again and closing it quits. A second start finds the running
+tray through a socket in `$XDG_RUNTIME_DIR`; on Windows through a named event.
+Windows may put a new icon in the overflow (^) first; drag it onto the taskbar
+to keep it visible.
 
-The **Autostart** button (`src/autostart.rs`) starts it hidden on login: it
-writes `~/.config/autostart/brightness-tray.desktop`, which runs the current
-binary with `--tray`. Clicking it again removes the file. If you move the
-binary, toggle it off and on to update the path.
+The **Autostart** button (`src/autostart/`) starts it hidden on login, running
+the current binary with `--tray`. On Linux it writes
+`~/.config/autostart/brightness-tray.desktop`; on Windows it sets the value
+`BIBI Brightness` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+Clicking it again removes it. If you move the binary, toggle it off and on to
+update the path.
 
 ## Build (Linux)
 

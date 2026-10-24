@@ -1,8 +1,4 @@
-// ---------------------------------------------------------------------------
-// Start on login (Linux), toggled from the "Autostart" button. An XDG
-// autostart entry in ~/.config/autostart starts this binary with --tray, so
-// it sits in the panel without opening the window.
-// ---------------------------------------------------------------------------
+// Linux: an XDG autostart entry in ~/.config/autostart.
 
 use std::path::PathBuf;
 
