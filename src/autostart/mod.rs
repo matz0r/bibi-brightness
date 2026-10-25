@@ -11,4 +11,4 @@ mod windows;
 #[cfg(target_os = "linux")]
 pub use linux::{enabled, set};
 #[cfg(windows)]
-pub use windows::{enabled, set};
+pub use windows::{enabled, set, set_exe};

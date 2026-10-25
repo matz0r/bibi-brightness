@@ -18,6 +18,12 @@ Unzip `bibi-brightness-<version>-windows-x86_64.zip` and start
 `brightness.exe`. No installer or drivers needed. The binary is not signed, so
 SmartScreen may warn on first start ("More info" → "Run anyway").
 
+Click **Install** to keep it: it copies itself to
+`%LOCALAPPDATA%\Programs\BIBI Brightness\`, adds it to the Start menu and
+restarts from there. After that you can delete the download; Autostart points
+to the installed copy. To update, choose **Quit** on the tray icon, start the
+new download and click **Install** again.
+
 ## Linux
 
 Needs glibc 2.35 (Ubuntu 22.04) or newer.

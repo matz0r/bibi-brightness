@@ -1,6 +1,7 @@
 // Windows: a value under HKCU\...\CurrentVersion\Run, the same place the
 // "Startup apps" settings page lists.
 
+use std::path::Path;
 use std::ptr;
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
 use windows_sys::Win32::System::Registry::{
@@ -31,9 +32,18 @@ pub fn enabled() -> bool {
 }
 
 pub fn set(enable: bool) -> Result<(), String> {
-    let (key, name) = (wide(RUN_KEY), wide(VALUE_NAME));
-    let err = if enable {
+    if enable {
         let exe = std::env::current_exe().map_err(|e| format!("Can't find this program: {e}"))?;
+        return set_exe(Some(&exe));
+    }
+    set_exe(None)
+}
+
+/// Points the entry at `exe`, or removes it for None. The Install button
+/// uses this to move autostart to the installed copy.
+pub fn set_exe(exe: Option<&Path>) -> Result<(), String> {
+    let (key, name) = (wide(RUN_KEY), wide(VALUE_NAME));
+    let err = if let Some(exe) = exe {
         let command = wide(&format!("\"{}\" --tray", exe.display()));
         unsafe {
             RegSetKeyValueW(

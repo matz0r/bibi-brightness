@@ -1,7 +1,9 @@
 // Windows tray icon in the notification area. A second start finds the
-// running tray through a named event and sets it to open the window.
+// running tray through a named event and sets it to open the window. A
+// second event makes it quit, for the Install button.
 
 use std::ptr;
+use std::time::{Duration, Instant};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use windows_sys::Win32::Foundation::{
@@ -19,6 +21,9 @@ use super::Window;
 
 /// Per user session; set by a second start to open the window
 const OPEN_EVENT: &str = "Local\\bibi-brightness-open";
+
+/// Set by the Install button to end the tray running from the download
+const QUIT_EVENT: &str = "Local\\bibi-brightness-quit";
 
 /// Resource id of assets/icon.ico in brightness.exe (see build.rs)
 const ICON_ID: u16 = 1;
@@ -44,6 +49,32 @@ fn notify_running(show_window: bool) -> bool {
     true
 }
 
+/// Ends a running tray (an open window stays open) and waits until it is
+/// gone, so a new start doesn't find it. Ok also if none was running.
+pub fn quit_running() -> Result<(), String> {
+    let quit = wide(QUIT_EVENT);
+    let event = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, quit.as_ptr()) };
+    if event.is_null() {
+        return Ok(());
+    }
+    unsafe {
+        SetEvent(event);
+        CloseHandle(event);
+    }
+    // The open event exists as long as the tray runs
+    let open = wide(OPEN_EVENT);
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(5) {
+        let event = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, open.as_ptr()) };
+        if event.is_null() {
+            return Ok(());
+        }
+        unsafe { CloseHandle(event) };
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Err("The running tray icon doesn't quit. Quit it from its menu and try again.".into())
+}
+
 /// Runs until "Quit" is chosen.
 pub fn run(show_window: bool) -> Result<(), String> {
     if notify_running(show_window) {
@@ -65,6 +96,14 @@ pub fn run(show_window: bool) -> Result<(), String> {
         }
         return Ok(());
     }
+    let quit_name = wide(QUIT_EVENT);
+    let quit_event = unsafe { CreateEventW(ptr::null(), 0, 0, quit_name.as_ptr()) };
+    if quit_event.is_null() {
+        let e = std::io::Error::last_os_error().to_string();
+        unsafe { CloseHandle(event) };
+        return Err(e);
+    }
+    let events = [event, quit_event];
 
     let open = MenuItem::new("Open", true, None);
     let quit = MenuItem::new("Quit", true, None);
@@ -87,10 +126,14 @@ pub fn run(show_window: bool) -> Result<(), String> {
     }
 
     'run: loop {
-        // Sleep until a window message (tray clicks, menu) or a second start
-        let woke = unsafe { MsgWaitForMultipleObjects(1, &event, 0, INFINITE, QS_ALLINPUT) };
+        // Sleep until a window message (tray clicks, menu), a second start
+        // or the Install button
+        let woke =
+            unsafe { MsgWaitForMultipleObjects(2, events.as_ptr(), 0, INFINITE, QS_ALLINPUT) };
         if woke == WAIT_OBJECT_0 {
             window.open();
+        } else if woke == WAIT_OBJECT_0 + 1 {
+            break 'run;
         }
 
         let mut msg: MSG = unsafe { std::mem::zeroed() };
@@ -125,6 +168,9 @@ pub fn run(show_window: bool) -> Result<(), String> {
     }
 
     // An open window stays open
-    unsafe { CloseHandle(event) };
+    unsafe {
+        CloseHandle(quit_event);
+        CloseHandle(event);
+    }
     Ok(())
 }

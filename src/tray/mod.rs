@@ -18,7 +18,7 @@ mod windows;
 #[cfg(target_os = "linux")]
 pub use linux::run;
 #[cfg(windows)]
-pub use windows::run;
+pub use windows::{quit_running, run};
 
 use std::process::{Child, Command};
 

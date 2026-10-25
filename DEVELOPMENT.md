@@ -23,6 +23,16 @@ the current binary with `--tray`. On Linux it writes
 Clicking it again removes it. If you move the binary, toggle it off and on to
 update the path.
 
+The **Install** button (Windows only, `src/install.rs`) copies the running exe
+to `%LOCALAPPDATA%\Programs\BIBI Brightness\brightness.exe` (an older copy
+that is still running is renamed to `brightness.exe.old` first), creates
+`BIBI Brightness.lnk` in the user's Start menu through PowerShell's
+`WScript.Shell`, and repoints the autostart value if it is on. It then ends the
+tray of the running copy through the named event `Local\bibi-brightness-quit`
+and starts the installed exe. The button is hidden when running from the
+installed copy. To uninstall, quit it, turn Autostart off first, then delete
+that folder and the shortcut.
+
 ## Build (Linux)
 
 ```bash

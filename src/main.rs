@@ -9,6 +9,8 @@ use std::thread;
 
 #[cfg(any(target_os = "linux", windows))]
 mod autostart;
+#[cfg(windows)]
+mod install;
 #[cfg(target_os = "linux")]
 mod setup;
 #[cfg(any(target_os = "linux", windows))]
@@ -414,6 +416,9 @@ struct App {
     setup_tried: bool,
     #[cfg(any(target_os = "linux", windows))]
     autostart: bool,
+    /// Windows: running from the installed copy, so no Install button
+    #[cfg(windows)]
+    installed: bool,
 }
 
 impl App {
@@ -462,6 +467,8 @@ impl App {
             setup_tried: false,
             #[cfg(any(target_os = "linux", windows))]
             autostart: autostart::enabled(),
+            #[cfg(windows)]
+            installed: install::is_installed(),
         }
     }
 
@@ -672,6 +679,25 @@ impl eframe::App for App {
                         {
                             match autostart::set(!self.autostart) {
                                 Ok(()) => self.autostart = !self.autostart,
+                                Err(e) => self.status = Some(e),
+                            }
+                        }
+
+                        #[cfg(windows)]
+                        if !self.installed
+                            && ui
+                                .add(egui::Button::new("Install"))
+                                .on_hover_text(if install::has_installed_copy() {
+                                    "Replace the installed copy with this version"
+                                } else {
+                                    "Copy to your user folder and add to the Start menu, \
+                                     so it keeps working when you delete the download"
+                                })
+                                .clicked()
+                        {
+                            match install::install() {
+                                // The installed copy opens its own window
+                                Ok(()) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
                                 Err(e) => self.status = Some(e),
                             }
                         }
