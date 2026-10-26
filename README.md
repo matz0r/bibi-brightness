@@ -13,6 +13,11 @@ Change brightness of your displays with a simple cross-platform UI in a single b
 Prebuilt binaries for Linux and Windows are attached to each
 [release](https://github.com/matz0r/bibi-brightness/releases).
 
+### Optional install
+<p align="center">
+    <img src="assets/install.png" alt="how to install bibi brightness" width="250">
+</p>
+
 ## Windows
 
 Unzip `bibi-brightness-<version>-windows-x86_64.zip` and start
