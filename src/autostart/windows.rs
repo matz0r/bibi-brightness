@@ -15,8 +15,9 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-pub fn enabled() -> bool {
+fn command() -> Option<String> {
     let (key, name) = (wide(RUN_KEY), wide(VALUE_NAME));
+    let mut size = 0;
     let err = unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
@@ -25,10 +26,42 @@ pub fn enabled() -> bool {
             RRF_RT_REG_SZ,
             ptr::null_mut(),
             ptr::null_mut(),
-            ptr::null_mut(),
+            &mut size,
         )
     };
-    err == ERROR_SUCCESS
+    if err != ERROR_SUCCESS {
+        return None;
+    }
+    let mut data = vec![0u16; (size as usize).div_ceil(2)];
+    let err = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_SZ,
+            ptr::null_mut(),
+            data.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if err != ERROR_SUCCESS {
+        return None;
+    }
+    let end = data.iter().position(|&c| c == 0).unwrap_or(data.len());
+    String::from_utf16(&data[..end]).ok()
+}
+
+pub fn registered() -> bool {
+    command().is_some()
+}
+
+pub fn enabled() -> bool {
+    match (command(), std::env::current_exe()) {
+        (Some(command), Ok(exe)) => {
+            command.eq_ignore_ascii_case(&format!("\"{}\" --tray", exe.display()))
+        }
+        _ => false,
+    }
 }
 
 pub fn set(enable: bool) -> Result<(), String> {

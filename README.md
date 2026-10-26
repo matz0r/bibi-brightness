@@ -44,15 +44,32 @@ sudo modprobe i2c-dev                                        # load it now
 
 </details>
 
-Unpack `bibi-brightness-<version>-linux-x86_64.tar.gz` and, from inside the
-unpacked folder, install it into the menu:
+Unpack `bibi-brightness-<version>-linux-x86_64.tar.gz` and start `brightness`.
+Click **Install** to copy it to `~/.local/bin/brightness` and add it to your
+application menu. No administrator password is needed for installation.
+The installed copy starts automatically and the previous tray and window close.
+You can then delete the download.
+
+On both platforms, **Install** appears when this binary is not installed,
+when it is newer, or when it is a different build of the same version.
+It stays hidden when the same build or a newer version is already installed.
+Installation preserves enabled autostart and points it at the installed copy.
+
+When upgrading from Linux v0.6.0, quit the old tray from its menu once before
+installing: that version does not support the replacement command.
+
+<details>
+<summary>Manual installation</summary>
 
 ```bash
-mkdir -p ~/.local/bin && cp brightness ~/.local/bin/
+mkdir -p ~/.local/bin ~/.local/share/applications
+cp brightness ~/.local/bin/
 cp brightness.desktop ~/.local/share/applications/
 mkdir -p ~/.local/share/icons/hicolor/256x256/apps
 cp assets/icon.png ~/.local/share/icons/hicolor/256x256/apps/bibi-brightness.png
 ```
+
+</details>
 
 ## Usage
 
@@ -65,8 +82,13 @@ cp assets/icon.png ~/.local/share/icons/hicolor/256x256/apps/bibi-brightness.png
 - Closing the window keeps Brightness running as an icon in the panel
   (Linux) or the notification area next to the clock (Windows). Click the
   icon to show or hide the sliders; right-click it for **Quit**.
-- **Autostart** starts Brightness in the tray when you log in.
-  Click it again to turn it off.
+- **Autostart** is selected only when the startup entry launches the current
+  binary with `--tray`. It is checked when the window opens and refreshed while
+  it is open. Click it to enable or disable startup for this copy.
+- At login, Brightness waits for the desktop tray to become ready and reconnects
+  if the panel restarts. If no tray appears within 15 seconds, it opens a window
+  with a warning and a **Quit** button. While the tray is unavailable, closing a
+  tray-managed window keeps it open so the app remains accessible.
 
 ## Development
 

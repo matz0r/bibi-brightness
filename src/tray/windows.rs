@@ -24,6 +24,7 @@ const OPEN_EVENT: &str = "Local\\bibi-brightness-open";
 
 /// Set by the Install button to end the tray running from the download
 const QUIT_EVENT: &str = "Local\\bibi-brightness-quit";
+const REPLACE_EVENT: &str = "Local\\bibi-brightness-replace";
 
 /// Resource id of assets/icon.ico in brightness.exe (see build.rs)
 const ICON_ID: u16 = 1;
@@ -52,9 +53,24 @@ fn notify_running(show_window: bool) -> bool {
 /// Ends a running tray (an open window stays open) and waits until it is
 /// gone, so a new start doesn't find it. Ok also if none was running.
 pub fn quit_running() -> Result<(), String> {
-    let quit = wide(QUIT_EVENT);
+    stop_running(true)
+}
+pub fn take_over() -> Result<(), String> {
+    stop_running(false)
+}
+
+fn stop_running(preserve_window: bool) -> Result<(), String> {
+    let quit = wide(if preserve_window {
+        REPLACE_EVENT
+    } else {
+        QUIT_EVENT
+    });
     let event = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, quit.as_ptr()) };
     if event.is_null() {
+        // Compatibility with older releases which only have the quit event.
+        if preserve_window {
+            return stop_running(false);
+        }
         return Ok(());
     }
     unsafe {
@@ -103,7 +119,27 @@ pub fn run(show_window: bool) -> Result<(), String> {
         unsafe { CloseHandle(event) };
         return Err(e);
     }
-    let events = [event, quit_event];
+    let replace_name = wide(REPLACE_EVENT);
+    let replace_event = unsafe { CreateEventW(ptr::null(), 0, 0, replace_name.as_ptr()) };
+    if replace_event.is_null() {
+        unsafe {
+            CloseHandle(quit_event);
+            CloseHandle(event);
+        }
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    struct EventHandles([windows_sys::Win32::Foundation::HANDLE; 3]);
+    impl Drop for EventHandles {
+        fn drop(&mut self) {
+            for event in self.0 {
+                unsafe {
+                    CloseHandle(event);
+                }
+            }
+        }
+    }
+    let events = [event, quit_event, replace_event];
+    let _event_handles = EventHandles(events);
 
     let open = MenuItem::new("Open", true, None);
     let quit = MenuItem::new("Quit", true, None);
@@ -125,14 +161,18 @@ pub fn run(show_window: bool) -> Result<(), String> {
         window.open();
     }
 
+    super::report_ready();
     'run: loop {
         // Sleep until a window message (tray clicks, menu), a second start
         // or the Install button
         let woke =
-            unsafe { MsgWaitForMultipleObjects(2, events.as_ptr(), 0, INFINITE, QS_ALLINPUT) };
+            unsafe { MsgWaitForMultipleObjects(3, events.as_ptr(), 0, INFINITE, QS_ALLINPUT) };
         if woke == WAIT_OBJECT_0 {
             window.open();
         } else if woke == WAIT_OBJECT_0 + 1 {
+            window.close();
+            break 'run;
+        } else if woke == WAIT_OBJECT_0 + 2 {
             break 'run;
         }
 
@@ -162,15 +202,11 @@ pub fn run(show_window: bool) -> Result<(), String> {
             if ev.id == *open.id() {
                 window.open();
             } else if ev.id == *quit.id() {
+                window.close();
                 break 'run;
             }
         }
     }
 
-    // An open window stays open
-    unsafe {
-        CloseHandle(quit_event);
-        CloseHandle(event);
-    }
     Ok(())
 }

@@ -312,12 +312,13 @@ dependencies = [
 
 [[package]]
 name = "brightness"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ddc-hi",
  "eframe",
  "image",
  "ksni",
+ "semver",
  "tray-icon",
  "windows-sys 0.61.2",
  "winresource",

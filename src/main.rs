@@ -9,7 +9,7 @@ use std::thread;
 
 #[cfg(any(target_os = "linux", windows))]
 mod autostart;
-#[cfg(windows)]
+#[cfg(any(target_os = "linux", windows))]
 mod install;
 #[cfg(target_os = "linux")]
 mod setup;
@@ -56,15 +56,38 @@ enum Event {
 }
 
 fn main() -> eframe::Result {
+    if std::env::args().any(|a| a == "--version") {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    if std::env::args().any(|a| a == "--install") {
+        if let Err(e) = install::install() {
+            eprintln!("brightness: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+    let mut startup_warning = None;
     // Icon in the panel (Linux) or notification area (Windows); closing the
     // window keeps it running there. --tray starts hidden (autostart),
     // --window is the window process the tray starts.
     #[cfg(any(target_os = "linux", windows))]
     if !std::env::args().skip(1).any(|a| a == "--window") {
         let hidden = std::env::args().skip(1).any(|a| a == "--tray");
+        #[cfg(windows)]
+        if !hidden && install::available() {
+            // Opening a new download must show that version's installer UI.
+            if let Err(e) = tray::take_over() {
+                eprintln!("brightness: {e}");
+            }
+        }
         match tray::run(!hidden) {
             Ok(()) => return Ok(()),
-            Err(e) => eprintln!("brightness: no tray available ({e}), opening the window"),
+            Err(e) => {
+                eprintln!("brightness: no tray available ({e}), opening the window");
+                startup_warning = Some(format!("System tray unavailable: {e}"));
+            }
         }
     }
 
@@ -82,7 +105,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "brightness",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(App::new(cc, startup_warning)))),
     )
 }
 
@@ -411,21 +434,55 @@ struct App {
     /// Keys of monitors moved while refreshing; sent once the scan is done
     touched: HashSet<String>,
     status: Option<String>,
+    startup_warning: Option<String>,
+    button_icons: [egui::TextureHandle; 3],
     offer_setup: bool, // show the "Set up access" button (Linux)
     setting_up: bool,
     setup_tried: bool,
     #[cfg(any(target_os = "linux", windows))]
     autostart: bool,
-    /// Windows: running from the installed copy, so no Install button
-    #[cfg(windows)]
-    installed: bool,
+    #[cfg(any(target_os = "linux", windows))]
+    offer_install: bool,
+    #[cfg(any(target_os = "linux", windows))]
+    last_startup_check: std::time::Instant,
+    #[cfg(any(target_os = "linux", windows))]
+    install_finished: bool,
+    #[cfg(target_os = "linux")]
+    tray_available: bool,
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>, startup_warning: Option<String>) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (ev_tx, ev_rx) = mpsc::channel();
         set_style(&cc.egui_ctx);
+        // SVG sources live beside these 4× PNGs. Embed and decode once so the
+        // buttons stay sharp on high-DPI displays without an SVG runtime.
+        let button_icons = [
+            (
+                "install",
+                include_bytes!("../assets/icons/install.png").as_slice(),
+            ),
+            (
+                "autostart",
+                include_bytes!("../assets/icons/autostart.png").as_slice(),
+            ),
+            (
+                "rescan",
+                include_bytes!("../assets/icons/rescan.png").as_slice(),
+            ),
+        ]
+        .map(|(name, bytes)| {
+            let icon = eframe::icon_data::from_png_bytes(bytes).expect("valid bundled button icon");
+            cc.egui_ctx.load_texture(
+                name,
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [icon.width as usize, icon.height as usize],
+                    &icon.rgba,
+                ),
+                egui::TextureOptions::LINEAR,
+            )
+        });
         let ctx = cc.egui_ctx.clone();
         thread::spawn(move || worker(cmd_rx, ev_tx, ctx));
 
@@ -462,13 +519,21 @@ impl App {
             monitors,
             linked,
             status: None,
+            startup_warning,
+            button_icons,
             offer_setup: false,
             setting_up: false,
             setup_tried: false,
             #[cfg(any(target_os = "linux", windows))]
             autostart: autostart::enabled(),
-            #[cfg(windows)]
-            installed: install::is_installed(),
+            #[cfg(any(target_os = "linux", windows))]
+            offer_install: install::available(),
+            #[cfg(any(target_os = "linux", windows))]
+            last_startup_check: std::time::Instant::now(),
+            #[cfg(any(target_os = "linux", windows))]
+            install_finished: false,
+            #[cfg(target_os = "linux")]
+            tray_available: tray::available(),
         }
     }
 
@@ -637,6 +702,28 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let mut save_now = self.handle_events();
+        #[cfg(any(target_os = "linux", windows))]
+        if self.last_startup_check.elapsed() >= std::time::Duration::from_secs(2) {
+            self.autostart = autostart::enabled();
+            #[cfg(target_os = "linux")]
+            {
+                self.tray_available = tray::available();
+            }
+            self.last_startup_check = std::time::Instant::now();
+        }
+        #[cfg(target_os = "linux")]
+        if !self.install_finished
+            && !self.tray_available
+            && ui.ctx().input(|i| i.viewport().close_requested())
+            && std::env::args().any(|a| a == "--tray-managed")
+        {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.status =
+                Some("The system tray is unavailable. Keep this window open, or use Quit.".into());
+        }
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs(2));
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(NIGHT).inner_margin(16))
@@ -656,7 +743,14 @@ impl eframe::App for App {
                         if ui
                             .add_enabled(
                                 !self.scanning && !self.refreshing && !self.setting_up,
-                                egui::Button::new("Rescan"),
+                                egui::Button::image_and_text(
+                                    egui::Image::new((
+                                        self.button_icons[2].id(),
+                                        egui::vec2(16.0, 16.0),
+                                    ))
+                                    .tint(TEXT),
+                                    "Rescan",
+                                ),
                             )
                             .on_hover_text("Search for monitors again")
                             .clicked()
@@ -669,7 +763,21 @@ impl eframe::App for App {
 
                         #[cfg(any(target_os = "linux", windows))]
                         if ui
-                            .add(egui::Button::new("Autostart").selected(self.autostart))
+                            .add(
+                                egui::Button::image_and_text(
+                                    egui::Image::new((
+                                        self.button_icons[1].id(),
+                                        egui::vec2(16.0, 16.0),
+                                    ))
+                                    .tint(if self.autostart {
+                                        INK
+                                    } else {
+                                        TEXT
+                                    }),
+                                    "Autostart",
+                                )
+                                .selected(self.autostart),
+                            )
                             .on_hover_text(if self.autostart {
                                 "Starts in the tray when you log in. Click to turn off"
                             } else {
@@ -678,32 +786,54 @@ impl eframe::App for App {
                             .clicked()
                         {
                             match autostart::set(!self.autostart) {
-                                Ok(()) => self.autostart = !self.autostart,
+                                Ok(()) => self.autostart = autostart::enabled(),
                                 Err(e) => self.status = Some(e),
                             }
                         }
 
-                        #[cfg(windows)]
-                        if !self.installed
+                        #[cfg(any(target_os = "linux", windows))]
+                        if self.offer_install
                             && ui
-                                .add(egui::Button::new("Install"))
+                                .add(egui::Button::image_and_text(
+                                    egui::Image::new((
+                                        self.button_icons[0].id(),
+                                        egui::vec2(16.0, 16.0),
+                                    ))
+                                    .tint(TEXT),
+                                    "Install",
+                                ))
                                 .on_hover_text(if install::has_installed_copy() {
                                     "Replace the installed copy with this version"
                                 } else {
-                                    "Copy to your user folder and add to the Start menu, \
-                                     so it keeps working when you delete the download"
+                                    "Install in your user folder and application menu"
                                 })
                                 .clicked()
                         {
                             match install::install() {
                                 // The installed copy opens its own window
-                                Ok(()) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
+                                Ok(()) => {
+                                    self.install_finished = true;
+                                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                                }
                                 Err(e) => self.status = Some(e),
                             }
                         }
                     });
                 });
                 ui.add_space(6.0);
+                #[cfg(target_os = "linux")]
+                if !self.tray_available {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(
+                            SUN,
+                            "Waiting for the system tray. Closing to the tray is unavailable.",
+                        );
+                        if ui.button("Quit").clicked() {
+                            let _ = tray::quit_running();
+                            std::process::exit(0);
+                        }
+                    });
+                }
 
                 if self.setting_up {
                     ui.horizontal(|ui| {
@@ -746,6 +876,9 @@ impl eframe::App for App {
                     }
                 }
 
+                if let Some(warning) = &self.startup_warning {
+                    ui.colored_label(ui.visuals().warn_fg_color, warning);
+                }
                 if let Some(status) = &self.status {
                     ui.add_space(4.0);
                     ui.colored_label(ui.visuals().warn_fg_color, status);

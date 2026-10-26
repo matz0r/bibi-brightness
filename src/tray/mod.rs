@@ -16,9 +16,9 @@ mod linux;
 mod windows;
 
 #[cfg(target_os = "linux")]
-pub use linux::run;
+pub use linux::{available, quit_running, run};
 #[cfg(windows)]
-pub use windows::{quit_running, run};
+pub use windows::{quit_running, run, take_over};
 
 use std::process::{Child, Command};
 
@@ -33,6 +33,13 @@ impl Window {
     }
 
     fn open(&mut self) {
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        self.open_from(&exe);
+    }
+
+    fn open_from(&mut self, exe: &std::path::Path) {
         if self.is_open() {
             return;
         }
@@ -45,7 +52,10 @@ impl Window {
             };
             AllowSetForegroundWindow(ASFW_ANY);
         }
-        match std::env::current_exe().and_then(|exe| Command::new(exe).arg("--window").spawn()) {
+        match Command::new(exe)
+            .args(["--window", "--tray-managed"])
+            .spawn()
+        {
             Ok(child) => self.0 = Some(child),
             Err(e) => eprintln!("brightness: can't start the window: {e}"),
         }
@@ -68,5 +78,15 @@ impl Window {
         } else {
             self.open();
         }
+    }
+}
+
+/// Installer startup acknowledgement, before entering the tray event loop.
+pub(crate) fn report_ready() {
+    if std::env::args().any(|arg| arg == "--report-ready") {
+        use std::io::Write;
+        let mut out = std::io::stdout().lock();
+        let _ = writeln!(out, "ready");
+        let _ = out.flush();
     }
 }

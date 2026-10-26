@@ -22,7 +22,7 @@ fn env_dir(name: &str) -> Result<PathBuf, String> {
 }
 
 /// Where the installed copy lives
-fn exe_path() -> Result<PathBuf, String> {
+pub(super) fn exe_path() -> Result<PathBuf, String> {
     Ok(env_dir("LOCALAPPDATA")?
         .join("Programs")
         .join("BIBI Brightness")
@@ -35,24 +35,8 @@ fn shortcut_path() -> Result<PathBuf, String> {
         .join("BIBI Brightness.lnk"))
 }
 
-fn same_file(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a.as_os_str().eq_ignore_ascii_case(b.as_os_str()),
-        _ => false,
-    }
-}
-
-/// True when this is the installed copy (the button is hidden then)
-pub fn is_installed() -> bool {
-    match (std::env::current_exe(), exe_path()) {
-        (Ok(exe), Ok(target)) => same_file(&exe, &target),
-        _ => false,
-    }
-}
-
-/// True when an installed copy exists, so the button updates it
-pub fn has_installed_copy() -> bool {
-    exe_path().is_ok_and(|p| p.exists())
+pub(super) fn integration_exists() -> bool {
+    shortcut_path().is_ok_and(|p| p.is_file())
 }
 
 /// Installs and starts the installed copy. On Ok the caller closes this
@@ -63,34 +47,38 @@ pub fn install() -> Result<(), String> {
     let dir = target.parent().expect("path has a parent");
     std::fs::create_dir_all(dir).map_err(|e| format!("Can't create {}: {e}", dir.display()))?;
 
-    // An older installed copy may still run (its tray or window). Windows
-    // can't overwrite a running exe but can rename it, so move it aside.
-    let old = target.with_extension("exe.old");
-    let _ = std::fs::remove_file(&old);
-    if target.exists() {
-        std::fs::rename(&target, &old)
-            .map_err(|e| format!("Can't replace {}: {e}", target.display()))?;
+    let same = std::fs::canonicalize(&exe).ok() == std::fs::canonicalize(&target).ok();
+    if !same {
+        // Stage the complete binary before moving a running Windows executable.
+        let staged = target.with_extension(format!("new-{}", std::process::id()));
+        std::fs::copy(&exe, &staged).map_err(|e| format!("Can't stage the new binary: {e}"))?;
+        let old = target.with_extension(format!("old-{}", std::process::id()));
+        let had_old = target.exists();
+        if had_old {
+            std::fs::rename(&target, &old)
+                .map_err(|e| format!("Can't replace {}: {e}", target.display()))?;
+        }
+        if let Err(e) = std::fs::rename(&staged, &target) {
+            if had_old {
+                let _ = std::fs::rename(&old, &target);
+            }
+            return Err(format!("Can't install {}: {e}", target.display()));
+        }
+        let _ = std::fs::remove_file(old);
     }
-    if let Err(e) = std::fs::copy(&exe, &target) {
-        let _ = std::fs::rename(&old, &target);
-        return Err(format!("Can't copy to {}: {e}", target.display()));
-    }
-    // Fails while the old copy still runs; the next install removes it
-    let _ = std::fs::remove_file(&old);
 
     create_shortcut(&shortcut_path()?, &target)?;
 
-    if autostart::enabled() {
+    super::record_version(&target)?;
+
+    if autostart::registered() {
         autostart::set_exe(Some(&target))?;
     }
 
     // The tray of this (downloaded) copy would catch the new start and just
     // open this window again
     tray::quit_running()?;
-    Command::new(&target)
-        .spawn()
-        .map_err(|e| format!("Installed, but can't start {}: {e}", target.display()))?;
-    Ok(())
+    super::restart(&target)
 }
 
 /// Start menu shortcut through PowerShell and WScript.Shell; paths go in

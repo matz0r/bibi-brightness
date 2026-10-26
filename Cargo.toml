@@ -1,11 +1,12 @@
 [package]
 name = "brightness"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/matz0r/bibi-brightness"
 
 [dependencies]
+semver = "1"
 # Linux: /dev/i2c-*, Windows: dxva2. No NVAPI backend: on NVIDIA cards it would
 # list every monitor a second time next to dxva2.
 ddc-hi = { version = "0.4.1", default-features = false, features = ["ddc-i2c", "ddc-winapi"] }

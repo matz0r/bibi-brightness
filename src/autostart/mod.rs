@@ -9,6 +9,6 @@ mod linux;
 mod windows;
 
 #[cfg(target_os = "linux")]
-pub use linux::{enabled, set};
+pub use linux::{enabled, exec_quote, registered, set, set_exe};
 #[cfg(windows)]
-pub use windows::{enabled, set, set_exe};
+pub use windows::{enabled, registered, set, set_exe};
