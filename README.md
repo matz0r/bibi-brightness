@@ -1,11 +1,12 @@
-<p align="center"><img src="assets/banner.svg" alt="BIBI Brightness" width="100%"></p>
+[//]: # (<p align="center"><img src="assets/banner.svg" alt="BIBI Brightness" height="100px"></p>)
 
 # BIBI Brightness
 
-**Change brightness of your displays with a simple cross-platform UI in a single binary.**
+Change brightness of your displays with a simple cross-platform UI in a single binary.
 
-Cross-Platform tool to change monitor brightness over DDC/CI. Talks to the monitors directly
-(no ddcutil needed). DDC/CI must be enabled in the monitor's menu.
+<p align="center">
+<img src="assets/screenshot.png" alt="BIBI Brightness" height="200px">
+</p>
 
 ## Download
 
