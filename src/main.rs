@@ -19,7 +19,7 @@ mod tray;
 const BRIGHTNESS: u8 = 0x10; // VCP feature code for brightness
 
 /// Brightness presets: (linked monitors, other monitors) in percent.
-const PRESETS: &[(u8, u8)] = &[(45, 20), (67, 25), (75, 33), (80, 40), (90, 45)];
+const PRESETS: &[(u8, u8)] = &[(30, 15), (45, 20), (67, 25), (75, 33), (80, 40), (90, 45)];
 
 /// What the UI knows about a monitor.
 struct Monitor {
