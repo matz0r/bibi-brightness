@@ -15,6 +15,8 @@ mod install;
 mod setup;
 #[cfg(any(target_os = "linux", windows))]
 mod tray;
+#[cfg(any(target_os = "linux", windows))]
+mod update;
 
 const BRIGHTNESS: u8 = 0x10; // VCP feature code for brightness
 
@@ -65,6 +67,18 @@ fn main() -> eframe::Result {
         if let Err(e) = install::install() {
             eprintln!("brightness: {e}");
             std::process::exit(1);
+        }
+        return Ok(());
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    if std::env::args().any(|a| a == "--update") {
+        match update::update_now() {
+            Ok(Some(version)) => println!("Updated to {version}"),
+            Ok(None) => println!("{} is up to date", env!("CARGO_PKG_VERSION")),
+            Err(e) => {
+                eprintln!("brightness: {e}");
+                std::process::exit(1);
+            }
         }
         return Ok(());
     }
@@ -435,7 +449,7 @@ struct App {
     touched: HashSet<String>,
     status: Option<String>,
     startup_warning: Option<String>,
-    button_icons: [egui::TextureHandle; 3],
+    button_icons: [egui::TextureHandle; 4],
     offer_setup: bool, // show the "Set up access" button (Linux)
     setting_up: bool,
     setup_tried: bool,
@@ -447,6 +461,23 @@ struct App {
     last_startup_check: std::time::Instant,
     #[cfg(any(target_os = "linux", windows))]
     install_finished: bool,
+    /// Running from the installed copy: the only one that offers updates
+    #[cfg(any(target_os = "linux", windows))]
+    update_eligible: bool,
+    /// "Updates" toggle, off by default. The saved values are kept as loaded
+    /// in a downloaded copy, which shares the settings but never checks.
+    #[cfg(any(target_os = "linux", windows))]
+    update_check: bool,
+    /// Unix seconds of the last successful check
+    #[cfg(any(target_os = "linux", windows))]
+    update_last_check: u64,
+    /// Newest release found by the last check, if newer than that program
+    #[cfg(any(target_os = "linux", windows))]
+    update_latest: Option<semver::Version>,
+    #[cfg(any(target_os = "linux", windows))]
+    updating: bool,
+    #[cfg(any(target_os = "linux", windows))]
+    update_rx: Option<Receiver<update::Msg>>,
     #[cfg(target_os = "linux")]
     tray_available: bool,
 }
@@ -470,6 +501,10 @@ impl App {
             (
                 "rescan",
                 include_bytes!("../assets/icons/rescan.png").as_slice(),
+            ),
+            (
+                "update",
+                include_bytes!("../assets/icons/update.png").as_slice(),
             ),
         ]
         .map(|(name, bytes)| {
@@ -510,6 +545,23 @@ impl App {
             .collect();
         let _ = cmd_tx.send(Cmd::Scan(known));
 
+        #[cfg(any(target_os = "linux", windows))]
+        let update_eligible = update::eligible();
+        #[cfg(any(target_os = "linux", windows))]
+        let update_check =
+            cc.storage.and_then(|s| s.get_string("update_check")) == Some("1".into());
+        #[cfg(any(target_os = "linux", windows))]
+        let update_last_check = cc
+            .storage
+            .and_then(|s| s.get_string("update_last_check"))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        #[cfg(any(target_os = "linux", windows))]
+        let update_latest = cc
+            .storage
+            .and_then(|s| s.get_string("update_latest"))
+            .and_then(|s| semver::Version::parse(&s).ok());
+
         Self {
             tx: cmd_tx,
             rx: ev_rx,
@@ -532,9 +584,33 @@ impl App {
             last_startup_check: std::time::Instant::now(),
             #[cfg(any(target_os = "linux", windows))]
             install_finished: false,
+            #[cfg(any(target_os = "linux", windows))]
+            update_eligible,
+            #[cfg(any(target_os = "linux", windows))]
+            update_check,
+            #[cfg(any(target_os = "linux", windows))]
+            update_last_check,
+            #[cfg(any(target_os = "linux", windows))]
+            update_latest,
+            #[cfg(any(target_os = "linux", windows))]
+            updating: false,
+            // Checked when the window opens, at most once per day
+            #[cfg(any(target_os = "linux", windows))]
+            update_rx: (update_eligible
+                && update_check
+                && update::due(update_last_check, update::now()))
+            .then(update::check),
             #[cfg(target_os = "linux")]
             tray_available: tray::available(),
         }
+    }
+
+    /// The release the Update button offers
+    #[cfg(any(target_os = "linux", windows))]
+    fn offered_update(&self) -> Option<semver::Version> {
+        self.update_latest
+            .clone()
+            .filter(|v| self.update_eligible && self.update_check && update::is_newer(v))
     }
 
     /// Sends a slider value to the monitor, or keeps it for after the scan
@@ -703,6 +779,26 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let mut save_now = self.handle_events();
         #[cfg(any(target_os = "linux", windows))]
+        if let Some(msg) = self.update_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.update_rx = None;
+            match msg {
+                update::Msg::Checked(latest) => {
+                    self.update_last_check = update::now();
+                    self.update_latest = latest;
+                    save_now = true;
+                }
+                // The new copy opens its own window
+                update::Msg::Installed => {
+                    self.install_finished = true;
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                update::Msg::Failed(e) => {
+                    self.updating = false;
+                    self.status = Some(e);
+                }
+            }
+        }
+        #[cfg(any(target_os = "linux", windows))]
         if self.last_startup_check.elapsed() >= std::time::Duration::from_secs(2) {
             self.autostart = autostart::enabled();
             #[cfg(target_os = "linux")]
@@ -792,6 +888,38 @@ impl eframe::App for App {
                         }
 
                         #[cfg(any(target_os = "linux", windows))]
+                        if self.update_eligible
+                            && ui
+                                .add_enabled(
+                                    !self.updating,
+                                    egui::Button::image_and_text(
+                                        egui::Image::new((
+                                            self.button_icons[3].id(),
+                                            egui::vec2(16.0, 16.0),
+                                        ))
+                                        .tint(if self.update_check {
+                                            INK
+                                        } else {
+                                            TEXT
+                                        }),
+                                        "Updates",
+                                    )
+                                    .selected(self.update_check),
+                                )
+                                .on_hover_text(if self.update_check {
+                                    "Looks for a new version on GitHub once a day. Click to turn off"
+                                } else {
+                                    "Look for a new version on GitHub once a day"
+                                })
+                                .clicked()
+                        {
+                            self.update_check = !self.update_check;
+                            // Turning it on checks right away
+                            self.update_rx = self.update_check.then(update::check);
+                            save_now = true;
+                        }
+
+                        #[cfg(any(target_os = "linux", windows))]
                         if self.offer_install
                             && ui
                                 .add(egui::Button::image_and_text(
@@ -821,6 +949,28 @@ impl eframe::App for App {
                     });
                 });
                 ui.add_space(6.0);
+                #[cfg(any(target_os = "linux", windows))]
+                if self.updating {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Downloading and installing the update…");
+                    });
+                    ui.add_space(4.0);
+                } else if let Some(version) = self.offered_update() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(SUN, format!("Version {version} is available."));
+                        if ui
+                            .add(egui::Button::new(format!("Update to {version}")).selected(true))
+                            .on_hover_text("Download it from GitHub, install it and restart")
+                            .clicked()
+                        {
+                            self.updating = true;
+                            self.status = None;
+                            self.update_rx = Some(update::install(version));
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
                 #[cfg(target_os = "linux")]
                 if !self.tray_available {
                     ui.horizontal_wrapped(|ui| {
@@ -919,6 +1069,17 @@ impl eframe::App for App {
             .map(|m| format!("{}\t{}\t{}\t{}", m.slot, m.key, m.name, m.percent))
             .collect();
         storage.set_string("monitors", monitors.join("\n"));
+        #[cfg(any(target_os = "linux", windows))]
+        {
+            storage.set_string("update_check", (self.update_check as u8).to_string());
+            storage.set_string("update_last_check", self.update_last_check.to_string());
+            storage.set_string(
+                "update_latest",
+                self.update_latest
+                    .as_ref()
+                    .map_or(String::new(), ToString::to_string),
+            );
+        }
     }
 }
 

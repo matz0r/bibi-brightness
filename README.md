@@ -27,8 +27,7 @@ SmartScreen may warn on first start ("More info" → "Run anyway").
 Click **Install** to keep it: it copies itself to
 `%LOCALAPPDATA%\Programs\BIBI Brightness\`, adds it to the Start menu and
 restarts from there. After that you can delete the download; Autostart points
-to the installed copy. To update, choose **Quit** on the tray icon, start the
-new download and click **Install** again.
+to the installed copy.
 
 ## Linux
 
@@ -59,6 +58,17 @@ On both platforms, **Install** appears when this binary is not installed,
 when it is newer, or when it is a different build of the same version.
 It stays hidden when the same build or a newer version is already installed.
 Installation preserves enabled autostart and points it at the installed copy.
+
+### Updates
+
+The installed copy has an **Updates** button, off by default. Turn it on and
+it checks GitHub for a newer release right away; after that it checks when the
+window opens, at most once every 24 hours. If there is a newer version,
+**Update to x.y.z** appears below the buttons: it downloads that release,
+installs it and restarts. Nothing is downloaded or installed without that
+click, and with **Updates** off no update check is made.
+`brightness --update` updates from the command line in any case.
+Versions up to 0.6.2 don't have the button yet: install the new download once.
 
 When upgrading from Linux v0.6.0, quit the old tray from its menu once before
 installing: that version does not support the replacement command.

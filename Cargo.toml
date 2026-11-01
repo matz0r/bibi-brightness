@@ -24,6 +24,12 @@ eframe = { version = "0.37.0", default-features = false, features = [
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3.7", default-features = false, features = ["blocking", "async-io"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Update check and download from GitHub releases (installed copy only).
+# rustls with bundled roots: no OpenSSL needed at runtime.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+# Unpacks the .tar.gz release for the update
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
+tar = { version = "0.4.46", default-features = false }
 
 # Tray icon in the notification area; tray-icon's own Linux backend (GTK) is
 # not used, Linux has ksni above. windows-sys for the message loop, the
@@ -37,6 +43,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# Update download through the system TLS (SChannel) and certificate store
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
+# Unpacks the .zip release for the update
+zip = { version = "9.2.1", default-features = false, features = ["deflate-flate2"] }
 
 # Embeds assets/icon.ico into brightness.exe (see build.rs)
 [target.'cfg(windows)'.build-dependencies]

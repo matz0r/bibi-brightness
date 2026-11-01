@@ -16,6 +16,14 @@ pub fn has_installed_copy() -> bool {
     platform::exe_path().is_ok_and(|p| p.is_file())
 }
 
+/// Running from the installed location (the only copy that updates itself)
+pub fn is_installed_copy() -> bool {
+    let (Ok(target), Ok(exe)) = (platform::exe_path(), std::env::current_exe()) else {
+        return false;
+    };
+    target.is_file() && std::fs::canonicalize(exe).ok() == std::fs::canonicalize(target).ok()
+}
+
 pub fn available() -> bool {
     let Ok(target) = platform::exe_path() else {
         return true;

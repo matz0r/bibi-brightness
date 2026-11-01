@@ -53,9 +53,35 @@ binary, and waits for its readiness acknowledgement before closing the old UI.
 Errors keep the current window open. The old Linux v0.6.0 tray must be quit
 manually once because it has no replacement command.
 
+The **Updates** toggle (`src/update.rs`) is only shown in the window of the
+installed copy and is off by default. Its state, the time of the last
+successful check and the newest release found are saved with the other
+settings (`update_check`, `update_last_check`, `update_latest`). Turning it on
+checks at once; otherwise the window checks on start when the last successful
+check is 24 hours old or older (or lies in the future after a clock change).
+A failed check is not recorded, so the next start tries again. A downloaded
+copy shares these settings but keeps them unchanged and never checks.
+
+The check requests
+`https://github.com/matz0r/bibi-brightness/releases/latest` without following
+the redirect and reads the version from the `Location` header
+(`…/releases/tag/vX.Y.Z`), so neither the rate-limited API nor JSON is needed.
+If that version is newer, **Update to X.Y.Z** appears below the header. It
+downloads `bibi-brightness-X.Y.Z-<platform>.(tar.gz|zip)` from the release,
+unpacks the
+binary into a new folder in the temp directory, checks that its `--version`
+matches, and runs it with `--install`. From there it is the normal
+installation above; installer errors are read from a log file because the old
+window is ended when its tray is replaced. Leftover temp folders are removed
+at the next check. HTTPS uses rustls with bundled roots on Linux and SChannel
+with the system certificate store on Windows. Release asset names in
+`release.yml` must keep this pattern.
+
 `brightness --install` performs the same installation from the command line;
 add `--tray` to restart hidden. `brightness --version` prints the package version
 without starting the tray or scanning displays.
+`brightness --update` installs the latest release if it is newer than the
+running binary.
 
 ## Build (Linux)
 
@@ -101,6 +127,7 @@ packages as workflow artifacts.
 
 ```bash
 cargo test --locked
+cargo test --locked -- --ignored     # downloads the latest release, installs nothing
 cargo build --locked
 # Linux: requires Python gi/Gio and dbus-run-session; uses a temporary home/bus
 # and does not change the real desktop, installed app, or autostart entry.
