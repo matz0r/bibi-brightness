@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "brightness"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ddc-hi",
  "eframe",
