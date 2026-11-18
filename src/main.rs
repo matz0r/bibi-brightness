@@ -110,10 +110,7 @@ fn main() -> eframe::Result {
             .with_title("BIBI Brightness")
             .with_app_id("brightness")
             .with_inner_size([520.0, 330.0])
-            .with_icon(
-                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
-                    .expect("bundled icon is a valid PNG"),
-            ),
+            .with_icon(window_icon()),
         ..Default::default()
     };
     eframe::run_native(
@@ -121,6 +118,32 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, startup_warning)))),
     )
+}
+
+/// The window icon. On X11 a 256 px icon is 262 152 bytes as _NET_WM_ICON,
+/// just over the server's 256 KiB request limit, so winit's single
+/// ChangeProperty fails silently and the panel shows a broken icon.
+/// 128 px (64 KiB) fits easily and is plenty for taskbars and alt-tab.
+fn window_icon() -> egui::IconData {
+    #[cfg(target_os = "linux")]
+    {
+        const SIZE: u32 = 128;
+        let img = image::load_from_memory(include_bytes!("../assets/icon.png"))
+            .expect("bundled icon is a valid PNG")
+            .into_rgba8();
+        let scaled =
+            image::imageops::resize(&img, SIZE, SIZE, image::imageops::FilterType::Lanczos3);
+        egui::IconData {
+            rgba: scaled.into_raw(),
+            width: SIZE,
+            height: SIZE,
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
+            .expect("bundled icon is a valid PNG")
+    }
 }
 
 // ---------------------------------------------------------------------------
